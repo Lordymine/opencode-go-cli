@@ -134,6 +134,7 @@ O SearXNG roda como container Docker (`opencode-searxng`, porta 8888). É inicia
 | `ANTHROPIC_AUTH_TOKEN` | API key do OpenCode Go |
 | `ANTHROPIC_MODEL` | Modelo selecionado |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | `1` |
+| `CLAUDE_CODE_NO_FLICKER` | `1` |
 | `CLAUDE_CODE_SUBAGENT_MODEL`, `ANTHROPIC_DEFAULT_*_MODEL` | Mesmo modelo (garante que todo sub-agente usa o mesmo) |
 
 ### Config

@@ -39,6 +39,7 @@ export function buildClaudeEnv(
   env["ANTHROPIC_AUTH_TOKEN"] = apiKey;
   env["ANTHROPIC_MODEL"] = model;
   env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1";
+  env["CLAUDE_CODE_NO_FLICKER"] = "1";
   env["CLAUDE_CODE_SUBAGENT_MODEL"] = model;
   env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = model;
   env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = model;

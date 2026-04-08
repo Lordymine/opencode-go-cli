@@ -342,6 +342,7 @@ async function startFlow(
   modelOverride?: string,
   permissionOverride?: PermissionMode,
   portOverride?: number,
+  claudePassthroughArgs: string[] = [],
 ): Promise<void> {
   // 1. Provider
   const provider = providerOverride ?? await selectProvider();
@@ -377,7 +378,7 @@ async function startFlow(
   silenceLogger();
 
   const permArgs = buildPermissionArgs(permMode);
-  await runClaudeCode(model, proxyUrl, authToken, permArgs);
+  await runClaudeCode(model, proxyUrl, authToken, permArgs, claudePassthroughArgs);
   process.exit(0);
 }
 
@@ -388,6 +389,7 @@ async function runClaudeCode(
   baseUrl: string,
   authToken: string,
   extraArgs: string[],
+  claudePassthroughArgs: string[],
 ): Promise<number> {
   const config = getConfig();
   const provider = config.provider || "opencode";
@@ -404,9 +406,13 @@ async function runClaudeCode(
     p.log.info(`Flags: ${extraArgs.join(" ")}`);
   }
 
+  if (claudePassthroughArgs.length > 0) {
+    p.log.info(`Claude passthrough: ${claudePassthroughArgs.join(" ")}`);
+  }
+
   const claudePath = resolveClaudePath();
   const env = buildClaudeEnv(authToken, model, baseUrl);
-  const spawnArgs = ["--model", model, ...extraArgs];
+  const spawnArgs = ["--model", model, ...extraArgs, ...claudePassthroughArgs];
 
   const spinner = p.spinner();
   spinner.start(`Starting Claude Code with ${model}...`);
@@ -435,7 +441,7 @@ function printHelp(): void {
   console.log(`
 OpenCode Go CLI — Use OpenCode Go or OpenAI models with Claude Code
 
-Usage: opencode-go [options]
+Usage: opencode-go [options] [-- <claude-args...>]
 
 Interactive (no args):
   opencode-go               Select provider, model, and permission mode
@@ -453,6 +459,7 @@ Options:
   --port <port>             Proxy port (interactive mode auto-falls back; --proxy defaults to ${DEFAULT_PROXY_PORT})
   --version, -v             Show version
   --help, -h                Show this help
+  --                        Pass remaining args directly to Claude Code
 
 Providers:
   opencode    OpenCode Go models (MiniMax, Kimi, GLM)
@@ -476,7 +483,10 @@ Examples:
 // ─── Main ─────────────────────────────────────────────────
 
 export async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+  const rawArgs = process.argv.slice(2);
+  const passthroughIndex = rawArgs.indexOf("--");
+  const claudePassthroughArgs = passthroughIndex === -1 ? [] : rawArgs.slice(passthroughIndex + 1);
+  const args = passthroughIndex === -1 ? rawArgs : rawArgs.slice(0, passthroughIndex);
 
   // ─── Direct flags (exit immediately) ───
 
@@ -608,6 +618,7 @@ export async function main(): Promise<void> {
       modelOverride,
       permOverride,
       portOverride,
+      claudePassthroughArgs,
     );
     return;
   }

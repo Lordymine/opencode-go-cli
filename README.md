@@ -116,8 +116,11 @@ Claude Code → POST /v1/messages (Anthropic)
 | `ANTHROPIC_AUTH_TOKEN` | Your OpenCode Go API key |
 | `ANTHROPIC_MODEL` | Selected model |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | `1` |
+| `CLAUDE_CODE_NO_FLICKER` | `1` |
 | `CLAUDE_CODE_SUBAGENT_MODEL` | Same as selected model |
-| `ANTHROPIC_DEFAULT_MESSAGES_MODEL` | Same as selected model |
+| `ANTHROPIC_DEFAULT_SONNET_MODEL` | Same as selected model |
+| `ANTHROPIC_DEFAULT_OPUS_MODEL` | Same as selected model |
+| `ANTHROPIC_DEFAULT_HAIKU_MODEL` | Same as selected model |
 
 ## Architecture
 
@@ -165,6 +168,7 @@ tests/
 | `minimax-m2.5` | MiniMax M2.5 | Balanced speed and quality |
 | `kimi-k2.5` | Kimi K2.5 | Strong reasoning for complex tasks |
 | `glm-5` | GLM-5 | Latest generation from Zhipu AI |
+| `glm-5.1` | GLM-5.1 | Enhanced reasoning from Zhipu AI |
 
 ### OpenAI (OAuth — `--provider openai`)
 
@@ -209,6 +213,9 @@ opencode-go --model minimax-m2.7
 
 # Help
 opencode-go --help
+
+# Pass flags directly to Claude Code
+opencode-go --provider openai --model gpt-5.4 -- --dangerously-load-development-channels server:telegram-claude-bridge
 ```
 
 ## Setup

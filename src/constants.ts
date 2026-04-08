@@ -39,6 +39,7 @@ export const MODELS: Model[] = [
   { id: "minimax-m2.7", name: "MiniMax M2.7", description: "High performance coding model" },
   { id: "kimi-k2.5", name: "Kimi K2.5", description: "Strong reasoning for complex tasks" },
   { id: "glm-5", name: "GLM-5", description: "Latest generation from Zhipu AI" },
+  { id: "glm-5.1", name: "GLM-5.1", description: "Enhanced reasoning from Zhipu AI" },
 ];
 
 export const OPENCODE_GO_ENDPOINT = "https://opencode.ai/zen/go/v1/chat/completions";
@@ -73,6 +74,7 @@ export const PROXY_PORT_FALLBACK_ATTEMPTS = 20;
 
 export const PRESERVED_CLAUDE_CODE_VARS = new Set([
   "CLAUDE_CODE_GIT_BASH_PATH",
+  "CLAUDE_CODE_NO_FLICKER",
   "CLAUDE_CODE_SHELL",
   "CLAUDE_CODE_TMPDIR",
 ]);
