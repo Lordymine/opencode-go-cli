@@ -18,6 +18,9 @@ import { convertResponsesApiToAnthropic } from "./response-conversion-responses.
 import { streamResponsesToAnthropic } from "./stream-conversion-responses.js";
 import { hasWebSearchTool, handleWebSearch } from "./websearch-interceptor.js";
 import { ensureSearXNG } from "../search/searxng.js";
+import { handleQwenRequest } from "./qwen-handler.js";
+import { handleZaiRequest } from "./zai-handler.js";
+import { countAccounts } from "../db/accounts.js";
 
 const logger = createLogger("[proxy]");
 
@@ -32,9 +35,20 @@ function formatPortRange(startPort: number, attempts: number): string {
 
 export async function startProxy(port: number, provider: Provider, attempts = 1): Promise<number> {
   const config = getConfig();
-  const endpoint = provider === "openai" ? CODEX_API_URL : OPENCODE_GO_ENDPOINT;
+  const endpoint =
+    provider === "openai"
+      ? CODEX_API_URL
+      : provider === "qwen"
+        ? "qwen-dynamic" // resolved per-request by handleQwenRequest
+        : provider === "zai"
+          ? "zai-dynamic" // resolved per-request by handleZaiRequest
+          : OPENCODE_GO_ENDPOINT;
 
-  let accessToken: string;
+  // accessToken is only used by the non-Qwen providers (Qwen resolves per-request
+  // inside handleQwenRequest via the SQLite pool). Default to empty string so we
+  // don't confuse the Bun.serve closure scope.
+  let accessToken = "";
+
   if (provider === "openai") {
     if (!config.openaiTokens) {
       throw new Error("OpenAI tokens not found. Run 'opencode-go --oauth-login' first.");
@@ -55,6 +69,25 @@ export async function startProxy(port: number, provider: Provider, attempts = 1)
     accessToken = config.openaiTokens.access;
     logger.info(`Starting on port ${port} (OpenAI)`);
     logger.debug(`Endpoint: ${endpoint}`);
+  } else if (provider === "qwen") {
+    // Qwen uses per-request account selection via the rotator. We only
+    // need to confirm there's at least one account in the pool before
+    // spawning the proxy.
+    if (countAccounts() === 0) {
+      throw new Error(
+        "No Qwen accounts found. Run 'opencode-go --qwen-login' first.",
+      );
+    }
+    logger.info(`Starting on port ${port} (Qwen)`);
+  } else if (provider === "zai") {
+    // Z.ai uses a stored JWT token from browser login.
+    const cfg = getConfig();
+    if (!cfg.zaiToken) {
+      throw new Error(
+        "No Z.ai token found. Run 'opencode-go --zai-login' first.",
+      );
+    }
+    logger.info(`Starting on port ${port} (Z.ai)`);
   } else {
     if (!config.apiKey) {
       throw new Error("API key not found. Run 'opencode-go --setup' first.");
@@ -96,6 +129,19 @@ export async function startProxy(port: number, provider: Provider, attempts = 1)
               if (hasWebSearchTool(anthropicBody)) {
                 logger.info("Intercepting WebSearch request");
                 return await handleWebSearch(anthropicBody);
+              }
+
+              // Qwen: delegate to the rotation handler. It owns account
+              // selection, refresh, retry, and response translation.
+              if (provider === "qwen") {
+                return await handleQwenRequest(anthropicBody);
+              }
+
+              // Z.ai: delegate to the Z.ai handler. It owns signature,
+              // chat creation, and stream conversion.
+              if (provider === "zai") {
+                const cfg = getConfig();
+                return await handleZaiRequest(anthropicBody, cfg.zaiToken!);
               }
 
               const isResponses = provider === "openai";

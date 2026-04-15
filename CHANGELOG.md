@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+No unreleased changes yet.
+
+## [1.0.5] - 2026-04-15
+
+### Added
+- Qwen provider with OAuth device flow login, saved account management, health checks, and request-time account rotation.
+- Z.ai provider with browser-assisted login and support for free GLM models.
+- Local SQLite storage for Qwen accounts, rotation settings, and model cooldown locks under `~/.opencode-go-cli/`.
+- New CLI commands: `--qwen-login`, `--qwen-list`, `--qwen-test`, `--qwen-remove`, and `--zai-login`.
+- Rotator test coverage for fallback rules, model locks, fill-first selection, and round-robin sticky rotation.
+
+### Changed
+- Expanded the interactive settings flow and `--list` output to cover OpenCode Go, OpenAI, Qwen, and Z.ai providers.
+- Updated the release documentation to describe the new providers, auth flows, and local account storage model.
+- The default `bun test` script now runs the full test suite, including the new Qwen rotation tests.
+
+### Fixed
+- Restored the full OpenAI OAuth and Qwen token endpoint URLs in the shared constants used by the build output.
+
 ## [1.0.4] - 2026-04-07
 
 ### Added
@@ -44,10 +65,3 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Interactive CLI foundation with setup, model selection, and Claude Code launch orchestration.
 - Test suite covering helpers, request conversion, response conversion, logger behavior, and environment setup.
 - Repository documentation set including `README.md`, `CLAUDE.md`, and `.specs/` architecture and feature docs.
-
-## [Unreleased]
-
-### Added
-- Passthrough args: arguments after `--` are forwarded directly to Claude Code (e.g. `opencode-go -- --dangerously-load-development-channels server:bridge`).
-- Model: GLM-5.1 (`glm-5.1`) from Zhipu AI.
-- Environment variable `CLAUDE_CODE_NO_FLICKER=1` injected into Claude Code to suppress terminal flicker.

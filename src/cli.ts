@@ -8,9 +8,13 @@ import * as p from "@clack/prompts";
 import {
   MODELS,
   OPENAI_MODELS,
+  QWEN_MODELS,
+  ZAI_MODELS,
   DEFAULT_PROXY_PORT,
   PROXY_PORT_FALLBACK_ATTEMPTS,
   PROVIDERS,
+  buildQwenChatCompletionsUrl,
+  buildQwenHeaders,
   type Provider,
 } from "./constants.js";
 import { getConfig, saveConfig, deleteConfig } from "./config.js";
@@ -20,6 +24,20 @@ import { startProxy } from "./proxy/server.js";
 import { silenceLogger } from "./logger.js";
 import { createAuthorizationFlow, exchangeAuthorizationCode } from "./auth/oauth.js";
 import { startLocalOAuthServer } from "./auth/server.js";
+import { qwenLogin } from "./auth/qwen/device-flow.js";
+import { checkAndRefreshAccount } from "./auth/qwen/refresh.js";
+import { getZaiTokenViaBrowser } from "./auth/zai/browser-login.js";
+import { validateZaiToken } from "./proxy/zai-handler.js";
+import {
+  countAccounts,
+  getAccountById,
+  getAccountByEmail,
+  listAccounts,
+  removeAccount,
+  updateAccount,
+  type Account,
+} from "./db/accounts.js";
+import { getActiveModelLocks } from "./db/locks.js";
 
 // ─── Auth helpers ─────────────────────────────────────────
 
@@ -96,9 +114,172 @@ async function setupOpenAIOAuth(): Promise<boolean> {
   return false;
 }
 
+// ─── Qwen helpers ─────────────────────────────────────────
+
+async function setupQwenOAuth(): Promise<boolean> {
+  const spinner = p.spinner();
+  spinner.start("Requesting device code from Qwen...");
+
+  try {
+    const account = await qwenLogin({
+      onDeviceCode: async (device) => {
+        spinner.stop("Device code received");
+        p.log.info(
+          `Open in your browser: ${device.verification_uri_complete ?? device.verification_uri}`,
+        );
+        p.log.info(`User code: ${device.user_code}`);
+        try {
+          await open(device.verification_uri_complete ?? device.verification_uri);
+        } catch {
+          // ignore — user can open manually
+        }
+        spinner.start("Waiting for authorization…");
+      },
+      onPollTick: (secsLeft) => {
+        const m = Math.floor(secsLeft / 60);
+        const s = secsLeft % 60;
+        spinner.message(
+          `Waiting for authorization… ${m > 0 ? `${m}m ${s}s` : `${s}s`} remaining`,
+        );
+      },
+    });
+    spinner.stop(
+      `Qwen account saved: ${account.email ?? account.id.slice(0, 8)} (priority ${account.priority})`,
+    );
+    return true;
+  } catch (err) {
+    spinner.stop("Qwen authorization failed");
+    p.log.error(err instanceof Error ? err.message : String(err));
+    return false;
+  }
+}
+
+function formatExpiry(iso: string): string {
+  const diff = new Date(iso).getTime() - Date.now();
+  if (diff < 0) return "expired";
+  if (diff < 60_000) return `${Math.ceil(diff / 1000)}s`;
+  if (diff < 3_600_000) return `${Math.ceil(diff / 60_000)}m`;
+  if (diff < 86_400_000) return `${Math.ceil(diff / 3_600_000)}h`;
+  return `${Math.ceil(diff / 86_400_000)}d`;
+}
+
+// ─── Z.ai helpers ─────────────────────────────────────────
+
+async function setupZaiToken(): Promise<boolean> {
+  const spinner = p.spinner();
+  spinner.start("Preparando login automatizado do Z.ai...");
+
+  try {
+    const result = await getZaiTokenViaBrowser(validateZaiToken, (message) => {
+      spinner.message(message);
+    });
+
+    const config = getConfig();
+    config.zaiToken = result.token;
+    saveConfig(config);
+
+    spinner.stop(
+      result.reusedSession
+        ? `Z.ai já estava logado! Token validado e salvo (${result.userId.slice(0, 8)}...)`
+        : `Login do Z.ai concluído! Token capturado e salvo (${result.userId.slice(0, 8)}...)`,
+    );
+
+    p.log.info(`Navegador usado: ${result.browserPath}`);
+    return true;
+  } catch (err) {
+    spinner.stop("Falha no login automatizado do Z.ai");
+    p.log.error(err instanceof Error ? err.message : String(err));
+    p.log.info("Se der ruim com o navegador automático, aí sim a gente parte pro plano B manual.");
+    return false;
+  }
+}
+
+function printQwenAccountTable(accounts: Account[]): void {
+  if (accounts.length === 0) {
+    console.log("\nNo Qwen accounts found. Run `opencode-go --qwen-login` to add one.\n");
+    return;
+  }
+  console.log("");
+  console.log(
+    `  ${"#".padEnd(3)} ${"ID".padEnd(10)} ${"Email".padEnd(32)} ${"Status".padEnd(13)} ${"Pri".padEnd(4)} Expires`,
+  );
+  console.log("  " + "─".repeat(78));
+  accounts.forEach((acc, i) => {
+    const id = acc.id.slice(0, 8);
+    const email = (acc.email ?? acc.display_name ?? "(no email)").slice(0, 30).padEnd(32);
+    const status = !acc.is_active
+      ? "disabled".padEnd(13)
+      : acc.test_status.padEnd(13);
+    console.log(
+      `  ${String(i + 1).padEnd(3)} ${id.padEnd(10)} ${email} ${status} ${String(acc.priority).padEnd(4)} ${formatExpiry(acc.expires_at)}`,
+    );
+    for (const lock of getActiveModelLocks(acc.id)) {
+      const m = lock.model === "__all" ? "ALL models" : lock.model;
+      console.log(`         ⚠ locked: ${m} until ${formatExpiry(lock.locked_until)}`);
+    }
+    if (acc.last_error) {
+      console.log(`         ✗ last error (${acc.error_code}): ${acc.last_error.slice(0, 60)}`);
+    }
+  });
+  console.log("");
+}
+
+async function testQwenAccount(acc: Account): Promise<void> {
+  const label = acc.email ?? acc.id.slice(0, 8);
+  const spinner = p.spinner();
+  spinner.start(`Testing ${label}…`);
+  try {
+    const refreshed = await checkAndRefreshAccount(acc);
+    const start = Date.now();
+    const resp = await fetch(buildQwenChatCompletionsUrl(refreshed.resource_url), {
+      method: "POST",
+      headers: buildQwenHeaders(refreshed.access_token, false),
+      body: JSON.stringify({
+        model: "qwen3-coder-flash",
+        messages: [{ role: "user", content: "Hi" }],
+        max_tokens: 5,
+        stream: false,
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const latency = Date.now() - start;
+    if (resp.ok) {
+      updateAccount(acc.id, {
+        test_status: "active",
+        last_error: null,
+        error_code: null,
+      });
+      spinner.stop(`${label} OK (${latency}ms)`);
+    } else {
+      const errText = await resp.text();
+      updateAccount(acc.id, {
+        test_status: "unavailable",
+        last_error: errText.slice(0, 300),
+        error_code: resp.status,
+        last_error_at: new Date().toISOString(),
+      });
+      spinner.stop(`${label} FAIL ${resp.status}: ${errText.slice(0, 60)}`);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    updateAccount(acc.id, {
+      test_status: "unavailable",
+      last_error: msg.slice(0, 300),
+      error_code: 0,
+      last_error_at: new Date().toISOString(),
+    });
+    spinner.stop(`${label} ERROR: ${msg.slice(0, 60)}`);
+  }
+}
+
 // ─── Interactive menus ────────────────────────────────────
 
-function getProviderStatus(): { opencode: string; openai: string } {
+function getProviderStatus(): {
+  opencode: string;
+  openai: string;
+  qwen: string;
+  zai: string;
+} {
   const config = getConfig();
   const opencode = config.apiKey
     ? `✓ ${config.apiKey.slice(0, 12)}...`
@@ -106,7 +287,15 @@ function getProviderStatus(): { opencode: string; openai: string } {
   const openai = config.openaiTokens
     ? "✓ logged in"
     : "not logged in";
-  return { opencode, openai };
+  const qwenCount = countAccounts();
+  const qwen =
+    qwenCount === 0
+      ? "no accounts"
+      : `${qwenCount} account${qwenCount === 1 ? "" : "s"}`;
+  const zai = config.zaiToken
+    ? "✓ token set"
+    : "not configured";
+  return { opencode, openai, qwen, zai };
 }
 
 async function interactiveMain(): Promise<void> {
@@ -161,6 +350,30 @@ async function settingsMenu(): Promise<void> {
           }]
         : []),
       {
+        value: "qwen-login",
+        label: "Qwen — Add account (device flow)",
+        hint: status.qwen,
+      },
+      {
+        value: "zai-login",
+        label: "Z.ai — Login no navegador",
+        hint: status.zai,
+      },
+      ...(countAccounts() > 0
+        ? [
+            {
+              value: "qwen-list" as const,
+              label: "Qwen — List accounts",
+              hint: "status, locks, last error",
+            },
+            {
+              value: "qwen-test" as const,
+              label: "Qwen — Test all accounts",
+              hint: "validate tokens",
+            },
+          ]
+        : []),
+      {
         value: "reset",
         label: "Reset all",
         hint: "delete all configuration",
@@ -192,6 +405,30 @@ async function settingsMenu(): Promise<void> {
     if (config.provider === "openai") config.provider = "opencode";
     saveConfig(config);
     p.log.success("OpenAI tokens removed.");
+    process.exit(0);
+  }
+
+  if (setting === "qwen-login") {
+    await setupQwenOAuth();
+    p.log.info("Run opencode-go again to start Claude Code.");
+    process.exit(0);
+  }
+
+  if (setting === "zai-login") {
+    await setupZaiToken();
+    p.log.info("Run opencode-go again to start Claude Code.");
+    process.exit(0);
+  }
+
+  if (setting === "qwen-list") {
+    printQwenAccountTable(listAccounts());
+    process.exit(0);
+  }
+
+  if (setting === "qwen-test") {
+    for (const acc of listAccounts()) {
+      await testQwenAccount(acc);
+    }
     process.exit(0);
   }
 
@@ -229,6 +466,16 @@ async function selectProvider(): Promise<Provider> {
         label: "OpenAI (ChatGPT Plus/Pro)",
         hint: status.openai,
       },
+      {
+        value: "qwen" as Provider,
+        label: "Qwen (OAuth device flow)",
+        hint: status.qwen,
+      },
+      {
+        value: "zai" as Provider,
+        label: "Z.ai (free GLM models)",
+        hint: status.zai,
+      },
     ],
   });
 
@@ -242,7 +489,14 @@ async function selectProvider(): Promise<Provider> {
 
 async function selectModel(provider: Provider): Promise<string> {
   const config = getConfig();
-  const models = provider === "openai" ? OPENAI_MODELS : MODELS;
+  const models =
+    provider === "openai"
+      ? OPENAI_MODELS
+      : provider === "qwen"
+        ? QWEN_MODELS
+        : provider === "zai"
+          ? ZAI_MODELS
+          : MODELS;
 
   const model = await p.select({
     message: "Select model:",
@@ -326,6 +580,28 @@ async function ensureProviderAuth(provider: Provider): Promise<boolean> {
     return await setupOpenAIOAuth();
   }
 
+  if (provider === "qwen") {
+    if (countAccounts() > 0) return true;
+    p.log.warn("No Qwen accounts configured.");
+    const shouldAuth = await p.confirm({
+      message: "Login with Qwen now?",
+      initialValue: true,
+    });
+    if (p.isCancel(shouldAuth) || !shouldAuth) return false;
+    return await setupQwenOAuth();
+  }
+
+  if (provider === "zai") {
+    if (config.zaiToken) return true;
+    p.log.warn("No Z.ai token configured.");
+    const shouldAuth = await p.confirm({
+      message: "Fazer login no Z.ai agora?",
+      initialValue: true,
+    });
+    if (p.isCancel(shouldAuth) || !shouldAuth) return false;
+    return await setupZaiToken();
+  }
+
   if (config.apiKey) return true;
   p.log.warn("No OpenCode Go API key configured.");
   const shouldSetup = await p.confirm({
@@ -367,10 +643,18 @@ async function startFlow(
   saveConfig(config);
 
   // 6. Resolve auth token
+  //    Qwen picks per-request inside the rotator; we pass a placeholder so
+  //    Claude Code has something to set ANTHROPIC_AUTH_TOKEN to. The proxy
+  //    ignores whatever comes in this header for Qwen requests.
   const freshConfig = getConfig();
-  const authToken = provider === "openai"
-    ? freshConfig.openaiTokens!.access
-    : freshConfig.apiKey!;
+  const authToken =
+    provider === "openai"
+      ? freshConfig.openaiTokens!.access
+      : provider === "qwen"
+        ? "qwen-rotated"
+        : provider === "zai"
+          ? "zai-token"
+          : freshConfig.apiKey!;
 
   // 7. Start proxy + Claude Code
   const proxyPort = await startProxy(preferredPort, provider, PROXY_PORT_FALLBACK_ATTEMPTS);
@@ -396,6 +680,12 @@ async function runClaudeCode(
 
   if (provider === "openai") {
     p.log.success(`Provider: OpenAI`);
+    p.log.success(`Model: ${model}`);
+  } else if (provider === "qwen") {
+    p.log.success(`Provider: Qwen (rotating across ${countAccounts()} account(s))`);
+    p.log.success(`Model: ${model}`);
+  } else if (provider === "zai") {
+    p.log.success(`Provider: Z.ai (free GLM models)`);
     p.log.success(`Model: ${model}`);
   } else {
     p.log.success(`Provider: OpenCode Go`);
@@ -447,12 +737,17 @@ Interactive (no args):
   opencode-go               Select provider, model, and permission mode
 
 Options:
-  --provider <name>         Provider: opencode (default) or openai
+  --provider <name>         Provider: opencode (default), openai, qwen, or zai
   --model <id>              Model ID (skip model selection)
   --permission-mode <mode>  default | acceptEdits | auto | bypassPermissions
   --setup                   Configure OpenCode Go API key
   --oauth-login             Authenticate with OpenAI (ChatGPT Plus/Pro)
   --oauth-logout            Remove OpenAI tokens
+  --qwen-login              Add a Qwen account via OAuth device flow
+  --qwen-list               List saved Qwen accounts and their status
+  --qwen-remove <id|email>  Remove a Qwen account
+  --qwen-test               Test all Qwen accounts against the API
+  --zai-login               Login no Z.ai via navegador automatizado
   --reset                   Delete all configuration
   --list                    List available models
   --proxy                   Start proxy server only (for testing)
@@ -464,6 +759,9 @@ Options:
 Providers:
   opencode    OpenCode Go models (MiniMax, Kimi, GLM)
   openai      OpenAI models via OAuth (GPT-5.x family)
+  qwen        Qwen models via OAuth (qwen3-coder-plus/flash) with
+              multi-account rotation and automatic fallback
+  zai         Z.ai free GLM models (glm-4.7, glm-5-turbo, glm-5.1, glm-5)
 
 Permission modes:
   default             Ask permission for everything
@@ -522,6 +820,69 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
+  if (args.includes("--qwen-login")) {
+    p.intro("OpenCode Go CLI");
+    const ok = await setupQwenOAuth();
+    process.exit(ok ? 0 : 1);
+  }
+
+  if (args.includes("--qwen-list")) {
+    printQwenAccountTable(listAccounts());
+    process.exit(0);
+  }
+
+  if (args.includes("--qwen-test")) {
+    const targetIdx = args.indexOf("--qwen-test");
+    const maybeId = args[targetIdx + 1];
+    const accounts: Account[] =
+      maybeId && !maybeId.startsWith("--")
+        ? [getAccountById(maybeId) ?? getAccountByEmail(maybeId)].filter(
+            (a): a is Account => a !== null,
+          )
+        : listAccounts();
+    if (accounts.length === 0) {
+      console.log("\nNo Qwen accounts to test.\n");
+      process.exit(0);
+    }
+    for (const acc of accounts) {
+      await testQwenAccount(acc);
+    }
+    process.exit(0);
+  }
+
+  if (args.includes("--qwen-remove")) {
+    const idx = args.indexOf("--qwen-remove");
+    const idOrEmail = args[idx + 1];
+    if (!idOrEmail || idOrEmail.startsWith("--")) {
+      p.log.error("Usage: opencode-go --qwen-remove <id-or-email>");
+      process.exit(1);
+    }
+    const account =
+      getAccountById(idOrEmail) ?? getAccountByEmail(idOrEmail);
+    if (!account) {
+      p.log.error(`Qwen account not found: ${idOrEmail}`);
+      process.exit(1);
+    }
+    const label = account.email ?? account.id.slice(0, 8);
+    const confirm = await p.confirm({
+      message: `Remove Qwen account ${label}?`,
+      initialValue: false,
+    });
+    if (p.isCancel(confirm) || !confirm) {
+      p.log.info("Cancelled.");
+      process.exit(0);
+    }
+    removeAccount(account.id);
+    p.log.success(`Removed: ${label}`);
+    process.exit(0);
+  }
+
+  if (args.includes("--zai-login")) {
+    p.intro("OpenCode Go CLI");
+    const ok = await setupZaiToken();
+    process.exit(ok ? 0 : 1);
+  }
+
   if (args.includes("--reset")) {
     deleteConfig();
     p.log.success("Configuration deleted.");
@@ -531,12 +892,26 @@ export async function main(): Promise<void> {
   if (args.includes("--list")) {
     const providerIndex = args.indexOf("--provider");
     const providerName = providerIndex !== -1 ? args[providerIndex + 1] : "opencode";
-    const models = providerName === "openai" ? OPENAI_MODELS : MODELS;
-    const label = providerName === "openai" ? "OpenAI (GPT-5.x)" : "OpenCode Go";
+    const models =
+      providerName === "openai"
+        ? OPENAI_MODELS
+        : providerName === "qwen"
+          ? QWEN_MODELS
+          : providerName === "zai"
+            ? ZAI_MODELS
+            : MODELS;
+    const label =
+      providerName === "openai"
+        ? "OpenAI (GPT-5.x)"
+        : providerName === "qwen"
+          ? "Qwen (OAuth)"
+          : providerName === "zai"
+            ? "Z.ai (free GLM)"
+            : "OpenCode Go";
     console.log(`\nAvailable models (${label}):\n`);
     for (const model of models) {
-      console.log(`  ${model.id.padEnd(18)} ${model.name}`);
-      console.log(`  ${"".padEnd(18)} ${model.description}\n`);
+      console.log(`  ${model.id.padEnd(20)} ${model.name}`);
+      console.log(`  ${"".padEnd(20)} ${model.description}\n`);
     }
     process.exit(0);
   }
@@ -555,7 +930,15 @@ export async function main(): Promise<void> {
       console.error("[cli] Not authenticated with OpenAI. Run 'opencode-go --oauth-login' first.");
       process.exit(1);
     }
-    if (provider !== "openai" && !config.apiKey) {
+    if (provider === "qwen" && countAccounts() === 0) {
+      console.error("[cli] No Qwen accounts. Run 'opencode-go --qwen-login' first.");
+      process.exit(1);
+    }
+    if (provider === "zai" && !config.zaiToken) {
+      console.error("[cli] No Z.ai token. Run 'opencode-go --zai-login' first.");
+      process.exit(1);
+    }
+    if (provider === "opencode" && !config.apiKey) {
       console.error("[cli] No API key configured. Run 'opencode-go --setup' first.");
       process.exit(1);
     }
@@ -604,7 +987,14 @@ export async function main(): Promise<void> {
   if (hasOverrides) {
     // Validate model if both provider and model specified
     if (modelOverride && providerOverride) {
-      const modelList = providerOverride === "openai" ? OPENAI_MODELS : MODELS;
+      const modelList =
+        providerOverride === "openai"
+          ? OPENAI_MODELS
+          : providerOverride === "qwen"
+            ? QWEN_MODELS
+            : providerOverride === "zai"
+              ? ZAI_MODELS
+              : MODELS;
       if (!modelList.find((m) => m.id === modelOverride)) {
         p.log.error(`Unknown model: ${modelOverride}`);
         p.log.info(`Run 'opencode-go --list --provider ${providerOverride}' to see available models.`);
