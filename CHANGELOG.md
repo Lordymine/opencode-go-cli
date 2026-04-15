@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 No unreleased changes yet.
 
+## [1.0.6] - 2026-04-15
+
+### Fixed
+- Z.ai browser login now works on native Windows, macOS, and Linux. The previous browser discovery assumed WSL-style `/mnt/c/...` paths and shelled out to `bash -lc` for PATH lookups, so it only worked inside WSL. The new `resolveBrowserPath()` in `src/auth/zai/browser-login.ts` detects `process.platform`, uses real Windows paths resolved from `%ProgramFiles%`, `%ProgramFiles(x86)%`, and `%LOCALAPPDATA%`, macOS `.app` bundle paths, and Linux PATH-based discovery. `BROWSER` env var is now honored with absolute priority and validated with `fs.stat` instead of executing `--version`.
+- `--reset` and the interactive Settings → reset option now wipe the entire CLI state directory. Previously `deleteConfig()` only removed `config.json`, leaving Qwen accounts in `qwen.db`, the Z.ai browser profile, installations, and other persisted state behind. The new `resetAll()` in `src/config.ts` closes the SQLite handle first (required on Windows to release the file lock) and then removes `~/.opencode-go-cli/` recursively.
+
+### Changed
+- `whichUnix()` now uses `/bin/sh -c` instead of `bash -lc`, so PATH lookups for the Z.ai browser work on minimal Linux environments without bash.
+- WSL environments are now detected via `WSL_DISTRO_NAME` / `WSL_INTEROP` and still fall back to Windows-side Chrome / Edge via `/mnt/c` when no Linux browser is installed.
+
 ## [1.0.5] - 2026-04-15
 
 ### Added

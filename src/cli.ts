@@ -17,7 +17,7 @@ import {
   buildQwenHeaders,
   type Provider,
 } from "./constants.js";
-import { getConfig, saveConfig, deleteConfig } from "./config.js";
+import { getConfig, saveConfig, resetAll } from "./config.js";
 import { resolveClaudePath } from "./path.js";
 import { buildClaudeEnv } from "./env.js";
 import { startProxy } from "./proxy/server.js";
@@ -441,8 +441,8 @@ async function settingsMenu(): Promise<void> {
       p.log.info("Cancelled.");
       process.exit(0);
     }
-    deleteConfig();
-    p.log.success("All configuration deleted.");
+    resetAll();
+    p.log.success("All configuration deleted (config, Qwen DB, Z.ai profile).");
     process.exit(0);
   }
 
@@ -884,8 +884,8 @@ export async function main(): Promise<void> {
   }
 
   if (args.includes("--reset")) {
-    deleteConfig();
-    p.log.success("Configuration deleted.");
+    resetAll();
+    p.log.success("Configuration deleted (config, Qwen DB, Z.ai profile).");
     process.exit(0);
   }
 
