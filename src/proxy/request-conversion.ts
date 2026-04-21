@@ -7,21 +7,6 @@ import { convertImageSource } from "./helpers.js";
 export function convertAnthropicRequestToOpenAI(body: any): any {
   const openaiMessages: any[] = [];
 
-  // Moonshot/Kimi via OpenCode Zen (and similar extended-thinking
-  // backends) require every assistant message that carries tool_calls to
-  // include a non-empty `reasoning_content` when thinking is enabled on
-  // the request. Anthropic, however, only emits `thinking` blocks for
-  // turns where the model actually produced reasoning — so some assistant
-  // tool-call messages in the history have no thinking to preserve. In
-  // that case we still need to emit a placeholder reasoning_content so
-  // the upstream stops rejecting the request with
-  // "reasoning_content is missing in assistant tool call message".
-  const thinkingEnabled =
-    body.thinking &&
-    (body.thinking.type === "enabled" ||
-      body.thinking.type === "auto" ||
-      body.thinking === true);
-
   // 1. System prompt → system message
   if (body.system) {
     let systemText: string;
@@ -136,17 +121,24 @@ export function convertAnthropicRequestToOpenAI(body: any): any {
         if (textParts.length > 0) {
           openaiMsg.content = textParts.join("\n");
         }
-        if (reasoningParts.length > 0) {
-          openaiMsg.reasoning_content = reasoningParts.join("\n");
-        } else if (thinkingEnabled && toolCalls.length > 0) {
-          // Thinking is enabled on the request but Anthropic didn't emit a
-          // thinking block for this specific turn. Provide a placeholder
-          // so Moonshot-style upstreams don't reject the request with
-          // "reasoning_content is missing".
-          openaiMsg.reasoning_content = "[no reasoning provided]";
-        }
         if (toolCalls.length > 0) {
           openaiMsg.tool_calls = toolCalls;
+        }
+        // Extended-thinking backends (Moonshot/Kimi via OpenCode Zen,
+        // DeepSeek reasoner, etc.) require assistant messages that carry
+        // `tool_calls` to include a non-empty `reasoning_content` field.
+        // Some providers enable thinking upstream regardless of whether
+        // the client asked for it, so we emit the field whenever we
+        // translate a tool-calling assistant turn. If Anthropic actually
+        // sent thinking blocks we use that text; otherwise we fall back
+        // to a placeholder so the upstream stops rejecting the request
+        // with "reasoning_content is missing in assistant tool call
+        // message at index N". Providers that ignore the field are
+        // unaffected.
+        if (reasoningParts.length > 0) {
+          openaiMsg.reasoning_content = reasoningParts.join("\n");
+        } else if (toolCalls.length > 0) {
+          openaiMsg.reasoning_content = "[no reasoning provided]";
         }
       }
 

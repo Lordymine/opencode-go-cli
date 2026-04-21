@@ -255,10 +255,12 @@ describe("convertAnthropicRequestToOpenAI", () => {
     expect(result.messages[0].reasoning_content).toBeUndefined();
   });
 
-  test("injects placeholder reasoning_content when thinking enabled on tool-call turn without thinking block", () => {
+  test("injects placeholder reasoning_content on tool-call turn without thinking block", () => {
+    // No thinking field on the request — some upstreams (e.g. Moonshot
+    // via OpenCode Zen / OpenRouter) enable thinking server-side anyway,
+    // so reasoning_content is required regardless.
     const body = {
       model: "kimi-k2.6",
-      thinking: { type: "enabled", budget_tokens: 10000 },
       messages: [
         {
           role: "assistant",
@@ -278,10 +280,9 @@ describe("convertAnthropicRequestToOpenAI", () => {
     expect(result.messages[0].reasoning_content).toBe("[no reasoning provided]");
   });
 
-  test("does not inject placeholder when thinking enabled but message has no tool_calls", () => {
+  test("does not inject placeholder when message has no tool_calls", () => {
     const body = {
       model: "kimi-k2.6",
-      thinking: { type: "enabled", budget_tokens: 10000 },
       messages: [
         {
           role: "assistant",
@@ -296,7 +297,6 @@ describe("convertAnthropicRequestToOpenAI", () => {
   test("real thinking block wins over placeholder", () => {
     const body = {
       model: "kimi-k2.6",
-      thinking: { type: "enabled" },
       messages: [
         {
           role: "assistant",
