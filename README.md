@@ -32,13 +32,13 @@ Core capabilities:
 
 ### OpenCode Go (`--provider opencode`)
 
-| ID | Name | Description |
-|----|------|-------------|
-| `minimax-m2.5` | MiniMax M2.5 | Balanced speed and quality |
-| `minimax-m2.7` | MiniMax M2.7 | High performance coding model |
-| `kimi-k2.5` | Kimi K2.5 | Strong reasoning for complex tasks |
-| `glm-5` | GLM-5 | Latest generation from Zhipu AI |
-| `glm-5.1` | GLM-5.1 | Enhanced reasoning from Zhipu AI |
+The OpenCode Go model list is fetched live from
+`https://opencode.ai/zen/v1/models` and cached locally for one hour. Run
+`opencode-go --list` to see the current catalog (40+ models at the time of
+writing, including Claude, Gemini, GPT, GLM, MiniMax, Kimi, Qwen, and free-tier
+entries). Use `opencode-go --refresh-models` (or `--list --refresh-models`)
+to force a refresh. When the endpoint is unreachable the CLI falls back to a
+built-in snapshot of the most common models.
 
 ### OpenAI (`--provider openai`)
 
@@ -120,6 +120,10 @@ opencode-go --list
 opencode-go --list --provider openai
 opencode-go --list --provider qwen
 opencode-go --list --provider zai
+opencode-go --list --refresh-models   # force OpenCode model cache refresh
+
+# Refresh OpenCode model cache without listing
+opencode-go --refresh-models
 
 # Proxy only
 opencode-go --proxy --port 8080
@@ -259,6 +263,8 @@ src/
 |   |-- zai-handler.ts
 |   |-- zai-signature.ts
 |   `-- zai-stream.ts
+|-- providers/
+|   `-- opencode-models.ts
 `-- search/
     `-- searxng.ts
 ```
