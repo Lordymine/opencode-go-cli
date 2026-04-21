@@ -106,6 +106,11 @@ export async function startProxy(port: number, provider: Provider, attempts = 1)
     try {
       server = Bun.serve({
         port: candidatePort,
+        // Upstream LLM streaming responses can idle well beyond Bun's
+        // 10s default while a remote provider is thinking. Raise the
+        // cap so long-running turns don't get cut off mid-stream with
+        // "[Bun.serve]: request timed out after 10 seconds".
+        idleTimeout: 255,
         async fetch(req) {
           const url = new URL(req.url);
           logger.debug(`${req.method} ${url.pathname}`);
