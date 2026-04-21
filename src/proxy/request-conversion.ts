@@ -84,11 +84,28 @@ export function convertAnthropicRequestToOpenAI(body: any): any {
         openaiMsg.content = content;
       } else if (Array.isArray(content)) {
         const textParts: string[] = [];
+        const reasoningParts: string[] = [];
         const toolCalls: any[] = [];
 
         for (const block of content) {
           if (block.type === "text") {
             textParts.push(block.text);
+          } else if (block.type === "thinking") {
+            // Anthropic thinking blocks carry the reasoning text that
+            // extended-thinking backends (Moonshot/Kimi, DeepSeek, etc.)
+            // require echoed back on subsequent turns as
+            // `reasoning_content`. Dropping them causes providers to
+            // reject the request with "reasoning_content is missing".
+            if (typeof block.thinking === "string") {
+              reasoningParts.push(block.thinking);
+            } else if (typeof block.text === "string") {
+              reasoningParts.push(block.text);
+            }
+          } else if (block.type === "redacted_thinking") {
+            // Provider-opaque thinking. No plain text is available, but
+            // we still need a non-empty reasoning_content marker so the
+            // upstream doesn't complain about a missing field.
+            reasoningParts.push("[redacted]");
           } else if (block.type === "tool_use") {
             toolCalls.push({
               id: block.id,
@@ -103,6 +120,9 @@ export function convertAnthropicRequestToOpenAI(body: any): any {
 
         if (textParts.length > 0) {
           openaiMsg.content = textParts.join("\n");
+        }
+        if (reasoningParts.length > 0) {
+          openaiMsg.reasoning_content = reasoningParts.join("\n");
         }
         if (toolCalls.length > 0) {
           openaiMsg.tool_calls = toolCalls;
