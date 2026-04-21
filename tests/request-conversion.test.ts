@@ -255,6 +255,67 @@ describe("convertAnthropicRequestToOpenAI", () => {
     expect(result.messages[0].reasoning_content).toBeUndefined();
   });
 
+  test("injects placeholder reasoning_content when thinking enabled on tool-call turn without thinking block", () => {
+    const body = {
+      model: "kimi-k2.6",
+      thinking: { type: "enabled", budget_tokens: 10000 },
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "tool_1",
+              name: "read_file",
+              input: { path: "/tmp/x" },
+            },
+          ],
+        },
+      ],
+    };
+    const result = convertAnthropicRequestToOpenAI(body);
+    expect(result.messages[0].tool_calls).toHaveLength(1);
+    expect(result.messages[0].reasoning_content).toBe("[no reasoning provided]");
+  });
+
+  test("does not inject placeholder when thinking enabled but message has no tool_calls", () => {
+    const body = {
+      model: "kimi-k2.6",
+      thinking: { type: "enabled", budget_tokens: 10000 },
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Just text." }],
+        },
+      ],
+    };
+    const result = convertAnthropicRequestToOpenAI(body);
+    expect(result.messages[0].reasoning_content).toBeUndefined();
+  });
+
+  test("real thinking block wins over placeholder", () => {
+    const body = {
+      model: "kimi-k2.6",
+      thinking: { type: "enabled" },
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "Real reasoning." },
+            {
+              type: "tool_use",
+              id: "tool_1",
+              name: "read_file",
+              input: { path: "/x" },
+            },
+          ],
+        },
+      ],
+    };
+    const result = convertAnthropicRequestToOpenAI(body);
+    expect(result.messages[0].reasoning_content).toBe("Real reasoning.");
+  });
+
   test("forwards max_tokens", () => {
     const body = {
       model: "minimax-m2.7",
