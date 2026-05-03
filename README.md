@@ -156,6 +156,15 @@ Routing:
 - Qwen -> Chat Completions API with per-request account selection and retry/fallback
 - Z.ai -> Free GLM chat API with custom signing and SSE conversion
 
+### Extended Thinking History
+
+Some Chat Completions-compatible reasoning models require prior assistant
+tool-call turns to include `reasoning_content` when conversation history is
+replayed. The proxy preserves Anthropic `thinking` and `redacted_thinking`
+blocks as `reasoning_content`; when a replayed assistant tool-call turn has no
+plain reasoning block, it sends a small non-empty placeholder so
+Moonshot/Kimi-style upstreams do not reject the request.
+
 ## Setup
 
 Requirements:

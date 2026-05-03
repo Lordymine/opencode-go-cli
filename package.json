@@ -1,6 +1,6 @@
 {
   "name": "@opencode-go/cli",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "CLI to manage OpenCode Go subscription and launch Claude Code with the correct environment variables",
   "type": "module",
   "bin": {
@@ -8,8 +8,12 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Lordymine/opencode-go-cli.git"

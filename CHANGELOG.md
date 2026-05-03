@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+No unreleased changes yet.
+
+## [1.0.7] - 2026-05-03
+
 ### Added
 - Dynamic OpenCode Go model catalog. The CLI now fetches the live model list
   from `https://opencode.ai/zen/v1/models` on demand instead of relying on a
@@ -15,7 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   with a 1-hour TTL and fall back to a built-in snapshot when the endpoint
   is unreachable. New `--refresh-models` flag forces a cache bypass.
 - `src/providers/opencode-models.ts` with `getOpenCodeModels()` and
-  `humanizeModelId()`. Covered by 13 unit tests that exercise network,
+  `humanizeModelId()`. Covered by 14 unit tests that exercise network,
   cache, refresh, offline, fallback, and normalization paths.
 
 ### Changed
@@ -24,6 +28,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   their existing static model lists.
 - The built-in OpenCode Go fallback in `src/constants.ts` was expanded from
   5 entries to 13 so it remains useful offline.
+
+### Fixed
+- Assistant `thinking` and `redacted_thinking` blocks are now preserved as
+  OpenAI-compatible `reasoning_content` when converting Anthropic history for
+  Chat Completions providers. Assistant tool-call messages also receive a
+  non-empty placeholder when no reasoning block is present, preventing
+  Moonshot/Kimi-style extended-thinking backends from rejecting replayed
+  tool-use turns.
+- The local Bun proxy now sets `idleTimeout: 255` so long upstream LLM streams
+  are not cut off by Bun's 10-second default while a remote provider is still
+  thinking.
 
 ## [1.0.6] - 2026-04-15
 
