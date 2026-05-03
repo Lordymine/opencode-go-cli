@@ -160,6 +160,162 @@ describe("convertAnthropicRequestToOpenAI", () => {
     expect(result.tool_choice).toBe("required");
   });
 
+  test("preserves assistant thinking block as reasoning_content", () => {
+    const body = {
+      model: "kimi-k2.6",
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "Let me analyze the request." },
+            { type: "text", text: "Done." },
+          ],
+        },
+      ],
+    };
+    const result = convertAnthropicRequestToOpenAI(body);
+    expect(result.messages[0]).toEqual({
+      role: "assistant",
+      content: "Done.",
+      reasoning_content: "Let me analyze the request.",
+    });
+  });
+
+  test("preserves thinking across tool_use turn", () => {
+    const body = {
+      model: "kimi-k2.6",
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "Need to read the file first." },
+            {
+              type: "tool_use",
+              id: "tool_1",
+              name: "read_file",
+              input: { path: "/tmp/x" },
+            },
+          ],
+        },
+      ],
+    };
+    const result = convertAnthropicRequestToOpenAI(body);
+    expect(result.messages[0].role).toBe("assistant");
+    expect(result.messages[0].reasoning_content).toBe("Need to read the file first.");
+    expect(result.messages[0].tool_calls).toHaveLength(1);
+    expect(result.messages[0].tool_calls[0].id).toBe("tool_1");
+  });
+
+  test("joins multiple thinking blocks with newlines", () => {
+    const body = {
+      model: "kimi-k2.6",
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "First thought." },
+            { type: "thinking", thinking: "Second thought." },
+            { type: "text", text: "Reply." },
+          ],
+        },
+      ],
+    };
+    const result = convertAnthropicRequestToOpenAI(body);
+    expect(result.messages[0].reasoning_content).toBe("First thought.\nSecond thought.");
+  });
+
+  test("handles redacted_thinking blocks with placeholder", () => {
+    const body = {
+      model: "kimi-k2.6",
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            { type: "redacted_thinking", data: "opaque" },
+            { type: "text", text: "Reply." },
+          ],
+        },
+      ],
+    };
+    const result = convertAnthropicRequestToOpenAI(body);
+    expect(result.messages[0].reasoning_content).toBe("[redacted]");
+  });
+
+  test("omits reasoning_content when no thinking blocks present", () => {
+    const body = {
+      model: "kimi-k2.6",
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Just text." }],
+        },
+      ],
+    };
+    const result = convertAnthropicRequestToOpenAI(body);
+    expect(result.messages[0].reasoning_content).toBeUndefined();
+  });
+
+  test("injects placeholder reasoning_content on tool-call turn without thinking block", () => {
+    // No thinking field on the request — some upstreams (e.g. Moonshot
+    // via OpenCode Zen / OpenRouter) enable thinking server-side anyway,
+    // so reasoning_content is required regardless.
+    const body = {
+      model: "kimi-k2.6",
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "tool_1",
+              name: "read_file",
+              input: { path: "/tmp/x" },
+            },
+          ],
+        },
+      ],
+    };
+    const result = convertAnthropicRequestToOpenAI(body);
+    expect(result.messages[0].tool_calls).toHaveLength(1);
+    expect(result.messages[0].reasoning_content).toBe("[no reasoning provided]");
+  });
+
+  test("does not inject placeholder when message has no tool_calls", () => {
+    const body = {
+      model: "kimi-k2.6",
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Just text." }],
+        },
+      ],
+    };
+    const result = convertAnthropicRequestToOpenAI(body);
+    expect(result.messages[0].reasoning_content).toBeUndefined();
+  });
+
+  test("real thinking block wins over placeholder", () => {
+    const body = {
+      model: "kimi-k2.6",
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "Real reasoning." },
+            {
+              type: "tool_use",
+              id: "tool_1",
+              name: "read_file",
+              input: { path: "/x" },
+            },
+          ],
+        },
+      ],
+    };
+    const result = convertAnthropicRequestToOpenAI(body);
+    expect(result.messages[0].reasoning_content).toBe("Real reasoning.");
+  });
+
   test("forwards max_tokens", () => {
     const body = {
       model: "minimax-m2.7",

@@ -84,11 +84,28 @@ export function convertAnthropicRequestToOpenAI(body: any): any {
         openaiMsg.content = content;
       } else if (Array.isArray(content)) {
         const textParts: string[] = [];
+        const reasoningParts: string[] = [];
         const toolCalls: any[] = [];
 
         for (const block of content) {
           if (block.type === "text") {
             textParts.push(block.text);
+          } else if (block.type === "thinking") {
+            // Anthropic thinking blocks carry the reasoning text that
+            // extended-thinking backends (Moonshot/Kimi, DeepSeek, etc.)
+            // require echoed back on subsequent turns as
+            // `reasoning_content`. Dropping them causes providers to
+            // reject the request with "reasoning_content is missing".
+            if (typeof block.thinking === "string") {
+              reasoningParts.push(block.thinking);
+            } else if (typeof block.text === "string") {
+              reasoningParts.push(block.text);
+            }
+          } else if (block.type === "redacted_thinking") {
+            // Provider-opaque thinking. No plain text is available, but
+            // we still need a non-empty reasoning_content marker so the
+            // upstream doesn't complain about a missing field.
+            reasoningParts.push("[redacted]");
           } else if (block.type === "tool_use") {
             toolCalls.push({
               id: block.id,
@@ -106,6 +123,22 @@ export function convertAnthropicRequestToOpenAI(body: any): any {
         }
         if (toolCalls.length > 0) {
           openaiMsg.tool_calls = toolCalls;
+        }
+        // Extended-thinking backends (Moonshot/Kimi via OpenCode Zen,
+        // DeepSeek reasoner, etc.) require assistant messages that carry
+        // `tool_calls` to include a non-empty `reasoning_content` field.
+        // Some providers enable thinking upstream regardless of whether
+        // the client asked for it, so we emit the field whenever we
+        // translate a tool-calling assistant turn. If Anthropic actually
+        // sent thinking blocks we use that text; otherwise we fall back
+        // to a placeholder so the upstream stops rejecting the request
+        // with "reasoning_content is missing in assistant tool call
+        // message at index N". Providers that ignore the field are
+        // unaffected.
+        if (reasoningParts.length > 0) {
+          openaiMsg.reasoning_content = reasoningParts.join("\n");
+        } else if (toolCalls.length > 0) {
+          openaiMsg.reasoning_content = "[no reasoning provided]";
         }
       }
 
