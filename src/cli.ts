@@ -6,7 +6,6 @@ import { spawn } from "node:child_process";
 import { open } from "node:fs/promises";
 import * as p from "@clack/prompts";
 import {
-  MODELS,
   OPENAI_MODELS,
   QWEN_MODELS,
   ZAI_MODELS,
@@ -15,8 +14,13 @@ import {
   PROVIDERS,
   buildQwenChatCompletionsUrl,
   buildQwenHeaders,
+  type Model,
   type Provider,
 } from "./constants.js";
+import {
+  clearOpenCodeModelsCache,
+  getOpenCodeModels,
+} from "./providers/opencode-models.js";
 import { getConfig, saveConfig, resetAll } from "./config.js";
 import { resolveClaudePath } from "./path.js";
 import { buildClaudeEnv } from "./env.js";
@@ -487,16 +491,30 @@ async function selectProvider(): Promise<Provider> {
   return provider as Provider;
 }
 
+async function resolveModelsForProvider(
+  provider: Provider,
+  options: { refresh?: boolean } = {},
+): Promise<Model[]> {
+  if (provider === "openai") return OPENAI_MODELS;
+  if (provider === "qwen") return QWEN_MODELS;
+  if (provider === "zai") return ZAI_MODELS;
+
+  const spinner = p.spinner();
+  spinner.start(options.refresh ? "Refreshing OpenCode models..." : "Loading OpenCode models...");
+  const result = await getOpenCodeModels({ refresh: options.refresh });
+  if (result.source === "network") {
+    spinner.stop(`Loaded ${result.models.length} models from opencode.ai`);
+  } else if (result.source === "cache") {
+    spinner.stop(`Loaded ${result.models.length} cached models`);
+  } else {
+    spinner.stop(`Using built-in fallback (${result.models.length} models)`);
+  }
+  return result.models;
+}
+
 async function selectModel(provider: Provider): Promise<string> {
   const config = getConfig();
-  const models =
-    provider === "openai"
-      ? OPENAI_MODELS
-      : provider === "qwen"
-        ? QWEN_MODELS
-        : provider === "zai"
-          ? ZAI_MODELS
-          : MODELS;
+  const models = await resolveModelsForProvider(provider);
 
   const model = await p.select({
     message: "Select model:",
@@ -891,15 +909,9 @@ export async function main(): Promise<void> {
 
   if (args.includes("--list")) {
     const providerIndex = args.indexOf("--provider");
-    const providerName = providerIndex !== -1 ? args[providerIndex + 1] : "opencode";
-    const models =
-      providerName === "openai"
-        ? OPENAI_MODELS
-        : providerName === "qwen"
-          ? QWEN_MODELS
-          : providerName === "zai"
-            ? ZAI_MODELS
-            : MODELS;
+    const providerName = (providerIndex !== -1 ? args[providerIndex + 1] : "opencode") as Provider;
+    const refresh = args.includes("--refresh-models");
+    const models = await resolveModelsForProvider(providerName, { refresh });
     const label =
       providerName === "openai"
         ? "OpenAI (GPT-5.x)"
@@ -910,10 +922,26 @@ export async function main(): Promise<void> {
             : "OpenCode Go";
     console.log(`\nAvailable models (${label}):\n`);
     for (const model of models) {
-      console.log(`  ${model.id.padEnd(20)} ${model.name}`);
-      console.log(`  ${"".padEnd(20)} ${model.description}\n`);
+      console.log(`  ${model.id.padEnd(28)} ${model.name}`);
+      if (model.description) {
+        console.log(`  ${"".padEnd(28)} ${model.description}`);
+      }
+      console.log();
     }
     process.exit(0);
+  }
+
+  if (args.includes("--refresh-models") && !args.includes("--list")) {
+    const spinner = p.spinner();
+    spinner.start("Refreshing OpenCode models from opencode.ai...");
+    clearOpenCodeModelsCache();
+    const result = await getOpenCodeModels({ refresh: true });
+    if (result.source === "network") {
+      spinner.stop(`Cached ${result.models.length} models.`);
+      process.exit(0);
+    }
+    spinner.stop("Refresh failed — using fallback.");
+    process.exit(1);
   }
 
   // ─── Proxy-only mode ───
@@ -987,14 +1015,7 @@ export async function main(): Promise<void> {
   if (hasOverrides) {
     // Validate model if both provider and model specified
     if (modelOverride && providerOverride) {
-      const modelList =
-        providerOverride === "openai"
-          ? OPENAI_MODELS
-          : providerOverride === "qwen"
-            ? QWEN_MODELS
-            : providerOverride === "zai"
-              ? ZAI_MODELS
-              : MODELS;
+      const modelList = await resolveModelsForProvider(providerOverride);
       if (!modelList.find((m) => m.id === modelOverride)) {
         p.log.error(`Unknown model: ${modelOverride}`);
         p.log.info(`Run 'opencode-go --list --provider ${providerOverride}' to see available models.`);

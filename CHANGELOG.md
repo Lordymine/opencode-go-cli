@@ -6,7 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No unreleased changes yet.
+### Added
+- Dynamic OpenCode Go model catalog. The CLI now fetches the live model list
+  from `https://opencode.ai/zen/v1/models` on demand instead of relying on a
+  hand-maintained hardcoded array, so newly released models (e.g. `kimi-k2.6`,
+  `qwen3.6-plus`, `big-pickle`, new free-tier entries) show up automatically.
+  Results are cached on disk in `~/.opencode-go-cli/opencode-models.json`
+  with a 1-hour TTL and fall back to a built-in snapshot when the endpoint
+  is unreachable. New `--refresh-models` flag forces a cache bypass.
+- `src/providers/opencode-models.ts` with `getOpenCodeModels()` and
+  `humanizeModelId()`. Covered by 13 unit tests that exercise network,
+  cache, refresh, offline, fallback, and normalization paths.
+
+### Changed
+- `--list` (without `--provider`, or with `--provider opencode`) now shows
+  the live list. Other providers (`openai`, `qwen`, `zai`) continue to use
+  their existing static model lists.
+- The built-in OpenCode Go fallback in `src/constants.ts` was expanded from
+  5 entries to 13 so it remains useful offline.
 
 ## [1.0.6] - 2026-04-15
 

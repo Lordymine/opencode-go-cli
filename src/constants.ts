@@ -35,15 +35,30 @@ export type Provider = typeof PROVIDERS[number];
 
 // ─── OpenCode Go (default) ────────────────────────────────
 
+// Fallback snapshot of the OpenCode Zen catalog. Used only when the live
+// /zen/v1/models endpoint is unreachable. Updated 2026-04. For the current
+// list, the CLI fetches the catalog at runtime — see
+// src/providers/opencode-models.ts.
 export const MODELS: Model[] = [
-  { id: "minimax-m2.5", name: "MiniMax M2.5", description: "Balanced speed and quality" },
   { id: "minimax-m2.7", name: "MiniMax M2.7", description: "High performance coding model" },
+  { id: "minimax-m2.5", name: "MiniMax M2.5", description: "Balanced speed and quality" },
+  { id: "minimax-m2.5-free", name: "MiniMax M2.5 (Free)", description: "Free tier" },
+  { id: "kimi-k2.6", name: "Kimi K2.6", description: "Latest Kimi reasoning model" },
   { id: "kimi-k2.5", name: "Kimi K2.5", description: "Strong reasoning for complex tasks" },
-  { id: "glm-5", name: "GLM-5", description: "Latest generation from Zhipu AI" },
   { id: "glm-5.1", name: "GLM-5.1", description: "Enhanced reasoning from Zhipu AI" },
+  { id: "glm-5", name: "GLM-5", description: "Latest generation from Zhipu AI" },
+  { id: "qwen3.6-plus", name: "Qwen3.6 Plus", description: "Latest Qwen3 flagship" },
+  { id: "qwen3.5-plus", name: "Qwen3.5 Plus", description: "Qwen3 flagship" },
+  { id: "big-pickle", name: "Big Pickle", description: "OpenCode house model" },
+  { id: "ling-2.6-flash-free", name: "Ling 2.6 Flash (Free)", description: "Free tier" },
+  { id: "trinity-large-preview-free", name: "Trinity Large Preview (Free)", description: "Free tier preview" },
+  { id: "nemotron-3-super-free", name: "Nemotron 3 Super (Free)", description: "Free tier" },
 ];
 
 export const OPENCODE_GO_ENDPOINT = "https://opencode.ai/zen/go/v1/chat/completions";
+export const OPENCODE_MODELS_ENDPOINT = "https://opencode.ai/zen/v1/models";
+export const OPENCODE_MODELS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+export const OPENCODE_MODELS_FETCH_TIMEOUT_MS = 5_000;
 
 // ─── OpenAI / Codex (OAuth) ─────────────────────────────
 
@@ -170,6 +185,7 @@ export const ZAI_TIME_BUCKET_MS = 5 * 60 * 1000; // 5 minutes
 export const CONFIG_DIR = join(homedir(), ".opencode-go-cli");
 export const CONFIG_FILE = join(CONFIG_DIR, "config.json");
 export const QWEN_DB_FILE = join(CONFIG_DIR, "qwen.db");
+export const OPENCODE_MODELS_CACHE_FILE = join(CONFIG_DIR, "opencode-models.json");
 export const INSTALLATIONS_DIR = join(CONFIG_DIR, "installations");
 export const DEFAULT_INSTALLATION_ID = "default";
 export const DEFAULT_PROXY_PORT = 8080;
