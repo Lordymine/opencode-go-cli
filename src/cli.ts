@@ -6,7 +6,6 @@ import { spawn } from "node:child_process";
 import { open } from "node:fs/promises";
 import * as p from "@clack/prompts";
 import {
-  OPENAI_MODELS,
   QWEN_MODELS,
   ZAI_MODELS,
   DEFAULT_PROXY_PORT,
@@ -15,12 +14,18 @@ import {
   buildQwenChatCompletionsUrl,
   buildQwenHeaders,
   type Model,
+  type PermissionMode,
   type Provider,
 } from "./constants.js";
 import {
   clearOpenCodeModelsCache,
   getOpenCodeModels,
 } from "./providers/opencode-models.js";
+import {
+  clearOpenAIModelsCache,
+  getOpenAIModels,
+} from "./providers/openai-models.js";
+import { refreshStatuslineCodexUsage } from "./providers/openai-usage.js";
 import { getConfig, saveConfig, resetAll } from "./config.js";
 import { resolveClaudePath } from "./path.js";
 import { buildClaudeEnv } from "./env.js";
@@ -32,6 +37,17 @@ import { qwenLogin } from "./auth/qwen/device-flow.js";
 import { checkAndRefreshAccount } from "./auth/qwen/refresh.js";
 import { getZaiTokenViaBrowser } from "./auth/zai/browser-login.js";
 import { validateZaiToken } from "./proxy/zai-handler.js";
+import { buildStatuslineSnippet, installStatusline } from "./statusline/install.js";
+import {
+  clearStatuslineDebugFiles,
+  disableStatuslineDebug,
+  enableStatuslineDebug,
+  getStatuslineDebugLatestFile,
+  getStatuslineDebugLogFile,
+  isStatuslineDebugEnabled,
+  readLatestStatuslineDebugCapture,
+} from "./statusline/debug.js";
+import { buildStatuslineState, writeStatuslineState } from "./statusline/state.js";
 import {
   countAccounts,
   getAccountById,
@@ -42,6 +58,47 @@ import {
   type Account,
 } from "./db/accounts.js";
 import { getActiveModelLocks } from "./db/locks.js";
+
+async function getPackageVersion(): Promise<string> {
+  const packageJson = await Bun.file(new URL("../package.json", import.meta.url)).json() as {
+    version?: string;
+  };
+  return packageJson.version ?? "0.0.0";
+}
+
+function printStatuslineDebugCapture(): void {
+  const capture = readLatestStatuslineDebugCapture();
+
+  if (!capture) {
+    console.log("No statusline debug capture found yet.");
+    console.log(`Latest file: ${getStatuslineDebugLatestFile()}`);
+    return;
+  }
+
+  console.log(`Statusline debug: ${isStatuslineDebugEnabled() ? "enabled" : "disabled"}`);
+  console.log(`Captured at: ${capture.capturedAt}`);
+  console.log(`Parse OK: ${capture.parseOk}`);
+  console.log(`Top-level keys: ${capture.topLevelKeys.join(", ") || "(none)"}`);
+  console.log(`Has context_window: ${capture.contextWindow ? "yes" : "no"}`);
+  console.log(`Has rate_limits: ${capture.rateLimits ? "yes" : "no"}`);
+  if (capture.state?.lastUsage) {
+    console.log(`Local usage fallback: ${capture.state.lastUsage.contextTokens} context tokens`);
+  } else {
+    console.log("Local usage fallback: none");
+  }
+  if (capture.state?.rateLimits) {
+    const fiveHour = capture.state.rateLimits.five_hour?.used_percentage;
+    const sevenDay = capture.state.rateLimits.seven_day?.used_percentage;
+    console.log(
+      `Local Codex usage: 5h ${fiveHour ?? "?"}% | 7d ${sevenDay ?? "?"}%`,
+    );
+  } else {
+    console.log("Local Codex usage: none");
+  }
+  console.log(`Latest file: ${getStatuslineDebugLatestFile()}`);
+  console.log("");
+  console.log(JSON.stringify(capture.input, null, 2));
+}
 
 // ─── Auth helpers ─────────────────────────────────────────
 
@@ -108,6 +165,8 @@ async function setupOpenAIOAuth(): Promise<boolean> {
       access: tokens.access,
       refresh: tokens.refresh,
       expiresAt: tokens.expires,
+      accountId: tokens.accountId,
+      planType: tokens.planType,
     };
     saveConfig(config);
     p.log.success("OpenAI authenticated!");
@@ -495,7 +554,24 @@ async function resolveModelsForProvider(
   provider: Provider,
   options: { refresh?: boolean } = {},
 ): Promise<Model[]> {
-  if (provider === "openai") return OPENAI_MODELS;
+  if (provider === "openai") {
+    const config = getConfig();
+    const spinner = p.spinner();
+    spinner.start(options.refresh ? "Refreshing OpenAI models..." : "Loading OpenAI models...");
+    const result = await getOpenAIModels({
+      accessToken: config.openaiTokens?.access,
+      accountId: config.openaiTokens?.accountId,
+      refresh: options.refresh,
+    });
+    if (result.source === "network") {
+      spinner.stop(`Loaded ${result.models.length} models from ChatGPT`);
+    } else if (result.source === "cache") {
+      spinner.stop(`Loaded ${result.models.length} cached OpenAI models`);
+    } else {
+      spinner.stop(`Using built-in OpenAI fallback (${result.models.length} models)`);
+    }
+    return result.models;
+  }
   if (provider === "qwen") return QWEN_MODELS;
   if (provider === "zai") return ZAI_MODELS;
 
@@ -533,8 +609,6 @@ async function selectModel(provider: Provider): Promise<string> {
 
   return model as string;
 }
-
-type PermissionMode = "default" | "acceptEdits" | "auto" | "bypassPermissions";
 
 async function selectPermissionMode(): Promise<PermissionMode> {
   const mode = await p.select({
@@ -677,6 +751,29 @@ async function startFlow(
   // 7. Start proxy + Claude Code
   const proxyPort = await startProxy(preferredPort, provider, PROXY_PORT_FALLBACK_ATTEMPTS);
   const proxyUrl = `http://localhost:${proxyPort}`;
+
+  try {
+    writeStatuslineState(buildStatuslineState({
+      provider,
+      model,
+      permissionMode: permMode,
+      proxyUrl,
+      cliVersion: await getPackageVersion(),
+    }));
+  } catch (err) {
+    p.log.warn(
+      `Statusline state was not written: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  if (provider === "openai") {
+    const usageConfig = getConfig();
+    void refreshStatuslineCodexUsage({
+      accessToken: usageConfig.openaiTokens!.access,
+      accountId: usageConfig.openaiTokens!.accountId,
+    });
+  }
+
   silenceLogger();
 
   const permArgs = buildPermissionArgs(permMode);
@@ -769,6 +866,12 @@ Options:
   --reset                   Delete all configuration
   --list                    List available models
   --proxy                   Start proxy server only (for testing)
+  --install-statusline      Install opencode-go statusLine for Claude Code
+  --statusline-snippet      Print manual statusLine settings JSON
+  --statusline-debug-on     Capture raw Claude Code statusLine JSON locally
+  --statusline-debug-off    Stop statusLine debug capture
+  --statusline-debug-show   Print the latest captured statusLine JSON
+  --statusline-debug-clear  Delete captured statusLine debug files
   --port <port>             Proxy port (interactive mode auto-falls back; --proxy defaults to ${DEFAULT_PROXY_PORT})
   --version, -v             Show version
   --help, -h                Show this help
@@ -793,6 +896,8 @@ Examples:
   opencode-go --model minimax-m2.7 --permission-mode acceptEdits
   opencode-go --provider openai --model gpt-5.2-codex --permission-mode auto
   opencode-go --list --provider openai
+  opencode-go --install-statusline
+  opencode-go --statusline-debug-on
   `);
 }
 
@@ -812,8 +917,67 @@ export async function main(): Promise<void> {
   }
 
   if (args.includes("--version") || args.includes("-v")) {
-    const packageJson = await Bun.file(new URL("../package.json", import.meta.url)).json() as { version?: string };
-    console.log(`opencode-go v${packageJson.version ?? "0.0.0"}`);
+    console.log(`opencode-go v${await getPackageVersion()}`);
+    process.exit(0);
+  }
+
+  if (args.includes("--statusline-snippet")) {
+    console.log(buildStatuslineSnippet());
+    process.exit(0);
+  }
+
+  if (args.includes("--statusline-debug-on")) {
+    enableStatuslineDebug();
+    p.log.success("Statusline debug enabled.");
+    p.log.info(`Latest JSON: ${getStatuslineDebugLatestFile()}`);
+    p.log.info(`History: ${getStatuslineDebugLogFile()}`);
+    p.log.info("Run Claude Code and then inspect with `opencode-go --statusline-debug-show`.");
+    process.exit(0);
+  }
+
+  if (args.includes("--statusline-debug-off")) {
+    disableStatuslineDebug();
+    p.log.success("Statusline debug disabled.");
+    process.exit(0);
+  }
+
+  if (args.includes("--statusline-debug-clear")) {
+    clearStatuslineDebugFiles();
+    p.log.success("Statusline debug captures cleared.");
+    process.exit(0);
+  }
+
+  if (args.includes("--statusline-debug-show")) {
+    printStatuslineDebugCapture();
+    process.exit(0);
+  }
+
+  if (args.includes("--install-statusline")) {
+    p.intro("OpenCode Go CLI");
+    try {
+      const result = installStatusline();
+
+      if (result.status === "conflict") {
+        p.log.warn("Claude Code already has a custom statusLine. I did not overwrite it.");
+        p.log.info(`Script installed at: ${result.scriptPath}`);
+        p.log.info("Add this manually if you want to switch to opencode-go:");
+        console.log(result.manualSnippet);
+        process.exit(1);
+      }
+
+      p.log.success(
+        result.status === "already-installed"
+          ? "Statusline already installed."
+          : "Statusline installed.",
+      );
+      p.log.info(`Settings: ${result.settingsPath}`);
+      p.log.info(`Script: ${result.scriptPath}`);
+    } catch (err) {
+      p.log.error(err instanceof Error ? err.message : String(err));
+      p.log.info("Manual Claude Code settings snippet:");
+      console.log(buildStatuslineSnippet());
+      process.exit(1);
+    }
     process.exit(0);
   }
 
@@ -914,7 +1078,7 @@ export async function main(): Promise<void> {
     const models = await resolveModelsForProvider(providerName, { refresh });
     const label =
       providerName === "openai"
-        ? "OpenAI (GPT-5.x)"
+        ? "OpenAI (ChatGPT/Codex)"
         : providerName === "qwen"
           ? "Qwen (OAuth)"
           : providerName === "zai"
@@ -932,6 +1096,36 @@ export async function main(): Promise<void> {
   }
 
   if (args.includes("--refresh-models") && !args.includes("--list")) {
+    const providerIndex = args.indexOf("--provider");
+    const providerName = (providerIndex !== -1 ? args[providerIndex + 1] : "opencode") as Provider;
+
+    if (providerName === "openai") {
+      const config = getConfig();
+      if (!config.openaiTokens) {
+        p.log.error("Not authenticated with OpenAI. Run 'opencode-go --oauth-login' first.");
+        process.exit(1);
+      }
+      const spinner = p.spinner();
+      spinner.start("Refreshing OpenAI models from ChatGPT...");
+      clearOpenAIModelsCache();
+      const result = await getOpenAIModels({
+        accessToken: config.openaiTokens.access,
+        accountId: config.openaiTokens.accountId,
+        refresh: true,
+      });
+      if (result.source === "network") {
+        spinner.stop(`Cached ${result.models.length} OpenAI models.`);
+        process.exit(0);
+      }
+      spinner.stop("Refresh failed — using fallback.");
+      process.exit(1);
+    }
+
+    if (providerName === "qwen" || providerName === "zai") {
+      p.log.info(`${providerName} models are static in this CLI.`);
+      process.exit(0);
+    }
+
     const spinner = p.spinner();
     spinner.start("Refreshing OpenCode models from opencode.ai...");
     clearOpenCodeModelsCache();

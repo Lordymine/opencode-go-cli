@@ -27,6 +27,7 @@ Core capabilities:
 - WebSearch interception via local SearXNG
 - Proxy port fallback when the preferred port is busy
 - Shared model injection for Claude Code sub-agents
+- Claude Code statusLine installer with provider/model/context display
 
 ## Providers
 
@@ -42,14 +43,11 @@ built-in snapshot of the most common models.
 
 ### OpenAI (`--provider openai`)
 
-| ID | Name | Description |
-|----|------|-------------|
-| `gpt-5.2` | GPT-5.2 | Latest GPT-5 model |
-| `gpt-5.3` | GPT-5.3 | High performance GPT-5 |
-| `gpt-5.4` | GPT-5.4 | Balanced GPT-5 |
-| `gpt-5.1-codex` | GPT-5.1 Codex | Code-optimized GPT-5.1 |
-| `gpt-5.2-codex` | GPT-5.2 Codex | Code-optimized GPT-5.2 |
-| `gpt-5.3-codex` | GPT-5.3 Codex | Code-optimized GPT-5.3 |
+The OpenAI model list is fetched from ChatGPT's Codex model registry for the
+authenticated account and cached locally for one hour. This keeps ChatGPT Go,
+Plus, Pro, Team, and other plan-specific model availability in sync without a
+hardcoded list. Hidden/internal registry entries are filtered out, and the CLI
+falls back to the built-in GPT snapshot if the registry is unavailable.
 
 ### Qwen (`--provider qwen`)
 
@@ -120,13 +118,22 @@ opencode-go --list
 opencode-go --list --provider openai
 opencode-go --list --provider qwen
 opencode-go --list --provider zai
-opencode-go --list --refresh-models   # force OpenCode model cache refresh
+opencode-go --list --refresh-models   # force OpenCode cache refresh
+opencode-go --list --provider openai --refresh-models
 
-# Refresh OpenCode model cache without listing
+# Refresh dynamic model cache without listing
 opencode-go --refresh-models
+opencode-go --refresh-models --provider openai
 
 # Proxy only
 opencode-go --proxy --port 8080
+
+# Claude Code statusline
+opencode-go --install-statusline
+opencode-go --statusline-snippet
+opencode-go --statusline-debug-on
+opencode-go --statusline-debug-show
+opencode-go --statusline-debug-off
 
 # Pass extra flags through to Claude Code
 opencode-go --provider openai --model gpt-5.4 -- --dangerously-load-development-channels server:bridge
@@ -222,7 +229,9 @@ Example:
   "openaiTokens": {
     "access": "...",
     "refresh": "...",
-    "expiresAt": 1234567890
+    "expiresAt": 1234567890,
+    "accountId": "acct_...",
+    "planType": "plus"
   },
   "zaiToken": "...",
   "lastModel": "minimax-m2.7",
@@ -232,7 +241,15 @@ Example:
 
 Qwen accounts, rotator settings, and model cooldown locks are stored separately in `~/.opencode-go-cli/qwen.db`.
 
+OpenAI model discovery is cached in `~/.opencode-go-cli/openai-models.json`.
+
 `proxyPort` is the preferred local proxy port. In interactive mode the CLI automatically falls forward to the next free port if the preferred one is already in use.
+
+Claude Code statusline support is installed explicitly with `opencode-go --install-statusline`. It writes `~/.opencode-go-cli/statusline.js`, merges `~/.claude/settings.json` only when there is no foreign `statusLine`, and writes safe launch metadata to `~/.opencode-go-cli/statusline-state.json` when Claude Code is started through `opencode-go`. If Claude Code sends `context_window` with null percentages for custom providers, the proxy records the latest safe token usage there and the statusline renders an approximate `ctx ~N%` fallback.
+
+For the OpenAI provider, the statusline also refreshes Codex/ChatGPT usage from `https://chatgpt.com/backend-api/wham/usage` and displays the current `5h` and `7d` windows when the endpoint returns them. The values are cached in the same statusline state file and never store access or refresh tokens.
+
+For troubleshooting, `opencode-go --statusline-debug-on` makes the installed statusline capture Claude Code's raw status JSON locally. Use `opencode-go --statusline-debug-show` after a Claude Code render to inspect the latest payload, and `opencode-go --statusline-debug-off` when done. Captures are stored at `~/.opencode-go-cli/statusline-debug-latest.json` and `~/.opencode-go-cli/statusline-debug.jsonl`.
 
 ## Development
 
@@ -273,7 +290,14 @@ src/
 |   |-- zai-signature.ts
 |   `-- zai-stream.ts
 |-- providers/
-|   `-- opencode-models.ts
+|   |-- opencode-models.ts
+|   |-- openai-models.ts
+|   `-- openai-usage.ts
+|-- statusline/
+|   |-- format.ts
+|   |-- install.ts
+|   |-- script.ts
+|   `-- state.ts
 `-- search/
     `-- searxng.ts
 ```

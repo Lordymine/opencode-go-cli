@@ -325,4 +325,26 @@ describe("convertAnthropicRequestToOpenAI", () => {
     const result = convertAnthropicRequestToOpenAI(body);
     expect(result.max_tokens).toBe(4096);
   });
+
+  test("requests final usage chunks for streaming responses", () => {
+    const body = {
+      model: "minimax-m2.7",
+      stream: true,
+      messages: [{ role: "user", content: "Hello" }],
+    };
+    const result = convertAnthropicRequestToOpenAI(body);
+
+    expect(result.stream_options).toEqual({ include_usage: true });
+  });
+
+  test("omits stream_options for non-streaming responses", () => {
+    const body = {
+      model: "minimax-m2.7",
+      stream: false,
+      messages: [{ role: "user", content: "Hello" }],
+    };
+    const result = convertAnthropicRequestToOpenAI(body);
+
+    expect(result.stream_options).toBeUndefined();
+  });
 });

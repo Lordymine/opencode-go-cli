@@ -3,6 +3,7 @@
 // ============================================================
 
 import { generateMsgId, mapStopReason } from "./helpers.js";
+import { mapChatUsageToAnthropic, recordStatuslineUsage } from "./usage.js";
 
 export function convertOpenAIResponseToAnthropic(openaiResp: any): any {
   const choice = openaiResp.choices?.[0];
@@ -28,6 +29,9 @@ export function convertOpenAIResponseToAnthropic(openaiResp: any): any {
     }
   }
 
+  const usage = mapChatUsageToAnthropic(openaiResp.usage);
+  recordStatuslineUsage(usage);
+
   return {
     id: openaiResp.id ? openaiResp.id.replace("chatcmpl", "msg") : generateMsgId(),
     type: "message",
@@ -36,11 +40,6 @@ export function convertOpenAIResponseToAnthropic(openaiResp: any): any {
     model: openaiResp.model ?? "",
     stop_reason: mapStopReason(choice?.finish_reason),
     stop_sequence: null,
-    usage: {
-      input_tokens: openaiResp.usage?.prompt_tokens ?? 0,
-      output_tokens: openaiResp.usage?.completion_tokens ?? 0,
-      cache_creation_input_tokens: 0,
-      cache_read_input_tokens: 0,
-    },
+    usage,
   };
 }

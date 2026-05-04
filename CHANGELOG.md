@@ -8,6 +8,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 No unreleased changes yet.
 
+## [1.0.8] - 2026-05-04
+
+### Added
+- Claude Code statusline installer via `opencode-go --install-statusline`,
+  plus `--statusline-snippet` and debug helpers for inspecting raw statusline
+  payloads.
+- Safe local statusline state under `~/.opencode-go-cli/statusline-state.json`
+  with provider, model, permission mode, proxy URL, CLI version, latest usage
+  fallback, and Codex usage windows without storing prompts or credentials.
+- Dynamic OpenAI/Codex model discovery from ChatGPT's Codex model registry,
+  cached locally in `~/.opencode-go-cli/openai-models.json` with a static GPT
+  fallback when the registry is unavailable.
+- Codex usage refresh from ChatGPT's usage endpoint so the statusline can show
+  current 5h and 7d usage windows when the OpenAI provider returns them.
+- Statusline formatter, installer, state, debug, OpenAI model, OpenAI usage,
+  and streaming usage test coverage.
+
+### Changed
+- The build now emits both `dist/index.js` and `dist/statusline.js`.
+- OpenAI OAuth now preserves account and plan claims from the ID token when
+  present, allowing account-scoped model and usage requests.
+- `--refresh-models` can refresh either OpenCode Go or OpenAI/Codex model
+  caches depending on `--provider`.
+
+### Fixed
+- Streaming OpenAI-compatible requests now ask for final usage chunks with
+  `stream_options.include_usage`.
+- Chat Completions and Responses API conversions now forward input, output,
+  cache creation, and cache read usage to Anthropic format where available.
+- The proxy records safe local usage fallback data for the statusline when
+  Claude Code sends null context percentages for custom providers.
+
 ## [1.0.7] - 2026-05-03
 
 ### Added

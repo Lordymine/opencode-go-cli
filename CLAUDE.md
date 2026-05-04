@@ -20,6 +20,11 @@ opencode-go --qwen-test
 opencode-go --qwen-remove <id-or-email>
 opencode-go --zai-login
 opencode-go --proxy --port 8080
+opencode-go --install-statusline
+opencode-go --statusline-snippet
+opencode-go --statusline-debug-on
+opencode-go --statusline-debug-show
+opencode-go --statusline-debug-off
 ```
 
 ## Operating Model
@@ -28,6 +33,8 @@ The project has two runtime modes:
 
 - Interactive mode: Start or Settings, then provider -> model -> permission mode -> proxy launch -> Claude Code launch.
 - Proxy mode: `--proxy` starts the local HTTP bridge directly on a chosen port.
+- Statusline install mode: `--install-statusline` installs the Claude Code
+  `statusLine` script and safely merges user settings.
 
 Supported providers:
 
@@ -74,17 +81,25 @@ Supported providers:
 | `src/auth/zai/*` | Z.ai browser-assisted token capture |
 | `src/db/*` | SQLite bootstrap, accounts, locks, settings |
 | `src/rotator/*` | Qwen account selection and fallback policy |
+| `src/providers/openai-models.ts` | OpenAI/Codex account-specific model discovery |
+| `src/providers/openai-usage.ts` | Codex/ChatGPT usage window fetch and statusline mapping |
 | `src/proxy/server.ts` | Bun server and provider routing |
 | `src/proxy/qwen-handler.ts` | Qwen request orchestration |
 | `src/proxy/zai-handler.ts` | Z.ai request orchestration |
 | `src/proxy/zai-stream.ts` | Z.ai SSE -> Anthropic SSE conversion |
 | `src/search/searxng.ts` | Local SearXNG lifecycle and queries |
+| `src/statusline/*` | Claude Code statusLine formatter, state, script, installer |
 
 ## Local State
 
 - `~/.opencode-go-cli/config.json`: OpenCode Go key, OpenAI tokens, Z.ai token, last provider/model, preferred proxy port
 - `~/.opencode-go-cli/qwen.db`: Qwen accounts, per-model locks, rotator settings
+- `~/.opencode-go-cli/openai-models.json`: cached OpenAI/Codex model registry for the authenticated account
 - `~/.opencode-go-cli/searxng/settings.yml`: generated SearXNG config
+- `~/.opencode-go-cli/statusline.js`: installed Claude Code statusLine script
+- `~/.opencode-go-cli/statusline-state.json`: safe provider/model launch metadata, latest proxy token usage fallback, and cached OpenAI `5h`/`7d` usage windows
+- `~/.opencode-go-cli/statusline-debug-latest.json`: latest captured statusLine JSON when debug is enabled
+- `~/.opencode-go-cli/statusline-debug.jsonl`: bounded statusLine debug history
 
 ## Constraints
 

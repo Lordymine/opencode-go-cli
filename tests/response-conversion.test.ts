@@ -1,5 +1,20 @@
-import { describe, test, expect } from "bun:test";
+import { afterEach, beforeEach, describe, test, expect } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { convertOpenAIResponseToAnthropic } from "../src/proxy/response-conversion.js";
+
+let tmpDir: string;
+
+beforeEach(() => {
+  tmpDir = mkdtempSync(join(tmpdir(), "opencode-response-test-"));
+  process.env["OPENCODE_STATUSLINE_STATE_FILE_OVERRIDE"] = join(tmpDir, "state.json");
+});
+
+afterEach(() => {
+  delete process.env["OPENCODE_STATUSLINE_STATE_FILE_OVERRIDE"];
+  rmSync(tmpDir, { recursive: true, force: true });
+});
 
 describe("convertOpenAIResponseToAnthropic", () => {
   test("converts message.content to type:text block", () => {

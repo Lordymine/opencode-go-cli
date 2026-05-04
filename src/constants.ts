@@ -17,6 +17,8 @@ export interface OpenAIAuthTokens {
   access: string;
   refresh: string;
   expiresAt: number; // timestamp ms
+  accountId?: string;
+  planType?: string;
 }
 
 export interface Config {
@@ -32,6 +34,9 @@ export interface Config {
 
 export const PROVIDERS = ["opencode", "openai", "qwen", "zai"] as const;
 export type Provider = typeof PROVIDERS[number];
+
+export const PERMISSION_MODES = ["default", "acceptEdits", "auto", "bypassPermissions"] as const;
+export type PermissionMode = typeof PERMISSION_MODES[number];
 
 // ─── OpenCode Go (default) ────────────────────────────────
 
@@ -78,6 +83,12 @@ export const CODEX_TOKEN_URL = "https://auth.openai.com/oauth/token";
 export const CODEX_REDIRECT_URI = "http://localhost:1455/auth/callback";
 export const CODEX_SCOPE = "openid profile email offline_access";
 export const CODEX_API_URL = "https://chatgpt.com/backend-api/codex/responses";
+export const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
+export const CODEX_MODELS_ENDPOINT = "https://chatgpt.com/backend-api/codex/models";
+export const CODEX_RELEASES_LATEST_URL = "https://api.github.com/repos/openai/codex/releases/latest";
+export const CODEX_MODELS_CLIENT_VERSION = "0.128.0";
+export const CODEX_MODELS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+export const CODEX_MODELS_FETCH_TIMEOUT_MS = 15_000;
 
 // ─── Qwen (OAuth device flow) ────────────────────────────
 
@@ -186,6 +197,7 @@ export const CONFIG_DIR = join(homedir(), ".opencode-go-cli");
 export const CONFIG_FILE = join(CONFIG_DIR, "config.json");
 export const QWEN_DB_FILE = join(CONFIG_DIR, "qwen.db");
 export const OPENCODE_MODELS_CACHE_FILE = join(CONFIG_DIR, "opencode-models.json");
+export const CODEX_MODELS_CACHE_FILE = join(CONFIG_DIR, "openai-models.json");
 export const INSTALLATIONS_DIR = join(CONFIG_DIR, "installations");
 export const DEFAULT_INSTALLATION_ID = "default";
 export const DEFAULT_PROXY_PORT = 8080;

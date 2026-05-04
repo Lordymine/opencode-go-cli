@@ -28,6 +28,8 @@ export interface TokenSuccess {
   access: string;
   refresh: string;
   expires: number; // timestamp ms
+  accountId?: string;
+  planType?: string;
 }
 
 export interface TokenFailure {
@@ -107,6 +109,7 @@ export async function exchangeAuthorizationCode(
   const json = (await res.json()) as {
     access_token?: string;
     refresh_token?: string;
+    id_token?: string;
     expires_in?: number;
   };
 
@@ -120,6 +123,7 @@ export async function exchangeAuthorizationCode(
     access: json.access_token,
     refresh: json.refresh_token,
     expires: Date.now() + json.expires_in * 1000,
+    ...extractOpenAIClaims(json.id_token),
   };
 }
 
@@ -147,6 +151,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<TokenRes
     const json = (await response.json()) as {
       access_token?: string;
       refresh_token?: string;
+      id_token?: string;
       expires_in?: number;
     };
 
@@ -160,6 +165,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<TokenRes
       access: json.access_token,
       refresh: json.refresh_token,
       expires: Date.now() + json.expires_in * 1000,
+      ...extractOpenAIClaims(json.id_token),
     };
   } catch (error) {
     const err = error as Error;
@@ -181,6 +187,27 @@ export function decodeJWT(token: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function extractOpenAIClaims(idToken: string | undefined): {
+  accountId?: string;
+  planType?: string;
+} {
+  if (!idToken) return {};
+  const claims = decodeJWT(idToken);
+  const auth = claims?.["https://api.openai.com/auth"];
+  const authClaims = auth && typeof auth === "object" ? auth as Record<string, unknown> : {};
+  const accountId = typeof authClaims.chatgpt_account_id === "string"
+    ? authClaims.chatgpt_account_id
+    : typeof claims?.chatgpt_account_id === "string"
+      ? claims.chatgpt_account_id
+      : undefined;
+  const planType = typeof authClaims.chatgpt_plan_type === "string"
+    ? authClaims.chatgpt_plan_type
+    : typeof claims?.chatgpt_plan_type === "string"
+      ? claims.chatgpt_plan_type
+      : undefined;
+  return { accountId, planType };
 }
 
 /**

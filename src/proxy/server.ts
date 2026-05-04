@@ -7,9 +7,10 @@ import {
   CODEX_API_URL,
   type Provider,
 } from "../constants.js";
-import { getConfig } from "../config.js";
+import { getConfig, saveConfig } from "../config.js";
 import { createLogger } from "../logger.js";
 import { refreshAccessToken } from "../auth/oauth.js";
+import { refreshStatuslineCodexUsage } from "../providers/openai-usage.js";
 import { convertAnthropicRequestToOpenAI } from "./request-conversion.js";
 import { convertOpenAIResponseToAnthropic } from "./response-conversion.js";
 import { streamOpenAIToAnthropic } from "./stream-conversion.js";
@@ -48,11 +49,13 @@ export async function startProxy(port: number, provider: Provider, attempts = 1)
   // inside handleQwenRequest via the SQLite pool). Default to empty string so we
   // don't confuse the Bun.serve closure scope.
   let accessToken = "";
+  let openaiAccountId: string | undefined;
 
   if (provider === "openai") {
     if (!config.openaiTokens) {
       throw new Error("OpenAI tokens not found. Run 'opencode-go --oauth-login' first.");
     }
+    openaiAccountId = config.openaiTokens.accountId;
     // Refresh if expiring within 1 minute
     if (Date.now() > config.openaiTokens.expiresAt - 60000) {
       logger.info("OpenAI token expired, refreshing...");
@@ -62,8 +65,11 @@ export async function startProxy(port: number, provider: Provider, attempts = 1)
           access: refreshed.access,
           refresh: refreshed.refresh,
           expiresAt: refreshed.expires,
+          accountId: refreshed.accountId ?? config.openaiTokens.accountId,
+          planType: refreshed.planType ?? config.openaiTokens.planType,
         };
-        // saveConfig(config); // tokens already saved in cli after refresh
+        openaiAccountId = config.openaiTokens.accountId;
+        saveConfig(config);
       }
     }
     accessToken = config.openaiTokens.access;
@@ -96,6 +102,14 @@ export async function startProxy(port: number, provider: Provider, attempts = 1)
     logger.info(`Starting on port ${port} (OpenCode Go)`);
     logger.debug(`API Key: ${accessToken.slice(0, 10)}...`);
     logger.debug(`Endpoint: ${endpoint}`);
+  }
+
+  function refreshOpenAIUsageState(): void {
+    if (provider !== "openai" || !accessToken) return;
+    void refreshStatuslineCodexUsage({
+      accessToken,
+      accountId: openaiAccountId,
+    });
   }
 
   let server;
@@ -210,6 +224,7 @@ export async function startProxy(port: number, provider: Provider, attempts = 1)
                       } catch (e) {
                         logger.error(`Stream error: ${e}`);
                       } finally {
+                        refreshOpenAIUsageState();
                         controller.close();
                       }
                     },
@@ -230,6 +245,12 @@ export async function startProxy(port: number, provider: Provider, attempts = 1)
                   const toolUses: any[] = [];
                   const toolArgs: Record<number, string> = {};
                   let stopReason = "end_turn";
+                  let finalUsage = {
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    cache_creation_input_tokens: 0,
+                    cache_read_input_tokens: 0,
+                  };
 
                   for await (const chunk of streamGenerator) {
                     // Parse SSE events from our own generator output
@@ -255,10 +276,12 @@ export async function startProxy(port: number, provider: Provider, attempts = 1)
                           toolArgs[evt.index] = (toolArgs[evt.index] ?? "") + evt.delta.partial_json;
                         } else if (evt.type === "message_delta" && evt.delta?.stop_reason) {
                           stopReason = evt.delta.stop_reason;
+                          if (evt.usage) finalUsage = evt.usage;
                         }
                       } catch {}
                     }
                   }
+                  refreshOpenAIUsageState();
 
                   // Parse accumulated tool args
                   for (const tu of toolUses) {
@@ -281,7 +304,7 @@ export async function startProxy(port: number, provider: Provider, attempts = 1)
                     model: anthropicBody.model ?? "",
                     stop_reason: stopReason,
                     stop_sequence: null,
-                    usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+                    usage: finalUsage,
                   };
 
                   logger.debug(`Response (collected): stop_reason=${stopReason}, blocks=${content.length}`);
@@ -295,6 +318,7 @@ export async function startProxy(port: number, provider: Provider, attempts = 1)
               // Non-streaming (Chat Completions only, OpenCode Go)
               const data = await response.json() as any;
               const anthropicResponse = convertOpenAIResponseToAnthropic(data);
+              refreshOpenAIUsageState();
               logger.debug(`Response: stop_reason=${anthropicResponse.stop_reason}, blocks=${anthropicResponse.content.length}`);
 
               return new Response(JSON.stringify(anthropicResponse), {

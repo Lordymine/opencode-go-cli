@@ -3,6 +3,7 @@
 // ============================================================
 
 import { generateMsgId } from "./helpers.js";
+import { mapResponsesUsageToAnthropic, recordStatuslineUsage } from "./usage.js";
 
 export function convertResponsesApiToAnthropic(resp: any): any {
   const contentBlocks: any[] = [];
@@ -34,6 +35,9 @@ export function convertResponsesApiToAnthropic(resp: any): any {
   if (hasToolCall) stopReason = "tool_use";
   if (resp.incomplete_details) stopReason = "max_tokens";
 
+  const usage = mapResponsesUsageToAnthropic(resp.usage);
+  recordStatuslineUsage(usage);
+
   return {
     id: resp.id ? resp.id.replace("resp_", "msg_") : generateMsgId(),
     type: "message",
@@ -42,11 +46,6 @@ export function convertResponsesApiToAnthropic(resp: any): any {
     model: resp.model ?? "",
     stop_reason: stopReason,
     stop_sequence: null,
-    usage: {
-      input_tokens: resp.usage?.input_tokens ?? 0,
-      output_tokens: resp.usage?.output_tokens ?? 0,
-      cache_creation_input_tokens: 0,
-      cache_read_input_tokens: 0,
-    },
+    usage,
   };
 }

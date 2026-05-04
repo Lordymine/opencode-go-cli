@@ -4,6 +4,7 @@
 
 import { createLogger } from "../logger.js";
 import { generateMsgId, mapStopReason, makeSSE } from "./helpers.js";
+import { mapChatUsageToAnthropic, recordStatuslineUsage } from "./usage.js";
 
 export async function* streamOpenAIToAnthropic(response: Response): AsyncGenerator<string> {
   const msgId = generateMsgId();
@@ -80,15 +81,15 @@ export async function* streamOpenAIToAnthropic(response: Response): AsyncGenerat
           }
         }
 
+        const finalUsage = mapChatUsageToAnthropic(usage);
+        recordStatuslineUsage(finalUsage);
         yield makeSSE("message_delta", {
           type: "message_delta",
           delta: {
             stop_reason: encounteredToolCall ? "tool_use" : "end_turn",
             stop_sequence: null,
           },
-          usage: {
-            output_tokens: usage?.completion_tokens ?? 0,
-          },
+          usage: finalUsage,
         });
 
         yield makeSSE("message_stop", { type: "message_stop" });
@@ -194,15 +195,15 @@ export async function* streamOpenAIToAnthropic(response: Response): AsyncGenerat
           }
         }
 
+        const finalUsage = mapChatUsageToAnthropic(usage);
+        recordStatuslineUsage(finalUsage);
         yield makeSSE("message_delta", {
           type: "message_delta",
           delta: {
             stop_reason: mapStopReason(choice.finish_reason),
             stop_sequence: null,
           },
-          usage: {
-            output_tokens: usage?.completion_tokens ?? 0,
-          },
+          usage: finalUsage,
         });
 
         yield makeSSE("message_stop", { type: "message_stop" });
@@ -212,10 +213,12 @@ export async function* streamOpenAIToAnthropic(response: Response): AsyncGenerat
   }
 
   // Safety: if we exit the loop without sending message_stop
+  const finalUsage = mapChatUsageToAnthropic(usage);
+  recordStatuslineUsage(finalUsage);
   yield makeSSE("message_delta", {
     type: "message_delta",
     delta: { stop_reason: "end_turn", stop_sequence: null },
-    usage: { output_tokens: 0 },
+    usage: finalUsage,
   });
   yield makeSSE("message_stop", { type: "message_stop" });
 }

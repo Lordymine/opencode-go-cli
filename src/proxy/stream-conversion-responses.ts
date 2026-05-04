@@ -4,6 +4,7 @@
 
 import { createLogger } from "../logger.js";
 import { generateMsgId, makeSSE } from "./helpers.js";
+import { mapResponsesUsageToAnthropic, recordStatuslineUsage } from "./usage.js";
 
 export async function* streamResponsesToAnthropic(response: Response): AsyncGenerator<string> {
   const msgId = generateMsgId();
@@ -190,15 +191,15 @@ export async function* streamResponsesToAnthropic(response: Response): AsyncGene
           });
         }
 
+        const finalUsage = mapResponsesUsageToAnthropic(usage);
+        recordStatuslineUsage(finalUsage);
         yield makeSSE("message_delta", {
           type: "message_delta",
           delta: {
             stop_reason: hasToolCalls ? "tool_use" : "end_turn",
             stop_sequence: null,
           },
-          usage: {
-            output_tokens: usage?.output_tokens ?? 0,
-          },
+          usage: finalUsage,
         });
 
         yield makeSSE("message_stop", { type: "message_stop" });
@@ -217,10 +218,12 @@ export async function* streamResponsesToAnthropic(response: Response): AsyncGene
     });
   }
 
+  const finalUsage = mapResponsesUsageToAnthropic(usage);
+  recordStatuslineUsage(finalUsage);
   yield makeSSE("message_delta", {
     type: "message_delta",
     delta: { stop_reason: "end_turn", stop_sequence: null },
-    usage: { output_tokens: usage?.output_tokens ?? 0 },
+    usage: finalUsage,
   });
   yield makeSSE("message_stop", { type: "message_stop" });
 }

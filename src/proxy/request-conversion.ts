@@ -168,6 +168,10 @@ export function convertAnthropicRequestToOpenAI(body: any): any {
     stream: body.stream ?? false,
   };
 
+  if (body.stream === true) {
+    openaiBody.stream_options = { include_usage: true };
+  }
+
   if (body.max_tokens != null) openaiBody.max_tokens = body.max_tokens;
   if (body.temperature != null) openaiBody.temperature = body.temperature;
   if (body.top_p != null) openaiBody.top_p = body.top_p;
