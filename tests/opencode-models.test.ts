@@ -8,7 +8,7 @@ import {
   getOpenCodeModels,
   humanizeModelId,
 } from "../src/providers/opencode-models.js";
-import { MODELS } from "../src/constants.js";
+import { MODELS, OPENCODE_MODELS_ENDPOINT } from "../src/constants.js";
 
 let tmpDir: string;
 let cacheFile: string;
@@ -41,10 +41,16 @@ afterEach(() => {
 
 describe("humanizeModelId", () => {
   test("capitalizes known vendor segments", () => {
-    expect(humanizeModelId("minimax-m2.7")).toBe("MiniMax m2.7");
-    expect(humanizeModelId("kimi-k2.6")).toBe("Kimi k2.6");
+    expect(humanizeModelId("minimax-m2.7")).toBe("MiniMax M2.7");
+    expect(humanizeModelId("kimi-k2.6")).toBe("Kimi K2.6");
     expect(humanizeModelId("glm-5.1")).toBe("GLM 5.1");
     expect(humanizeModelId("gpt-5.4-pro")).toBe("GPT 5.4 Pro");
+  });
+
+  test("formats OpenCode Go model families", () => {
+    expect(humanizeModelId("deepseek-v4-pro")).toBe("DeepSeek V4 Pro");
+    expect(humanizeModelId("mimo-v2.5-pro")).toBe("MiMo V2.5 Pro");
+    expect(humanizeModelId("qwen3.6-plus")).toBe("Qwen3.6 Plus");
   });
 
   test("joins consecutive numeric segments with dots", () => {
@@ -54,7 +60,7 @@ describe("humanizeModelId", () => {
   });
 
   test("strips -free suffix and appends (Free) tag", () => {
-    expect(humanizeModelId("minimax-m2.5-free")).toBe("MiniMax m2.5 (Free)");
+    expect(humanizeModelId("minimax-m2.5-free")).toBe("MiniMax M2.5 (Free)");
     expect(humanizeModelId("nemotron-3-super-free")).toBe("Nemotron 3 super (Free)");
   });
 
@@ -65,8 +71,10 @@ describe("humanizeModelId", () => {
 
 describe("getOpenCodeModels", () => {
   test("fetches from network when no cache", async () => {
-    installFetchMock(async () =>
-      new Response(
+    let requestedUrl: string | undefined;
+    installFetchMock(async (input) => {
+      requestedUrl = input.toString();
+      return new Response(
         JSON.stringify({
           object: "list",
           data: [
@@ -75,13 +83,14 @@ describe("getOpenCodeModels", () => {
           ],
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
-    );
+      );
+    });
     const result = await getOpenCodeModels();
     expect(result.source).toBe("network");
+    expect(requestedUrl).toBe(OPENCODE_MODELS_ENDPOINT);
     expect(result.models.length).toBe(2);
     expect(result.models[0]?.id).toBe("minimax-m2.7");
-    expect(result.models[0]?.name).toBe("MiniMax m2.7");
+    expect(result.models[0]?.name).toBe("MiniMax M2.7");
     expect(existsSync(cacheFile)).toBe(true);
   });
 
@@ -127,7 +136,8 @@ describe("getOpenCodeModels", () => {
     writeFileSync(
       cacheFile,
       JSON.stringify({
-        version: 1,
+        version: 2,
+        endpoint: OPENCODE_MODELS_ENDPOINT,
         fetchedAt: Date.now(),
         models: [{ id: "cached", name: "Cached", description: "" }],
       }),
@@ -150,7 +160,8 @@ describe("getOpenCodeModels", () => {
     writeFileSync(
       cacheFile,
       JSON.stringify({
-        version: 1,
+        version: 2,
+        endpoint: OPENCODE_MODELS_ENDPOINT,
         fetchedAt: Date.now(),
         models: [{ id: "cached-only", name: "Cached Only", description: "" }],
       }),
@@ -158,7 +169,8 @@ describe("getOpenCodeModels", () => {
     // Cache is fresh → will be used before fetch. Expire it to force the
     // fetch attempt:
     const stale = {
-      version: 1,
+      version: 2,
+      endpoint: OPENCODE_MODELS_ENDPOINT,
       fetchedAt: Date.now() - 2 * 60 * 60 * 1000, // 2h old
       models: [{ id: "cached-only", name: "Cached Only", description: "" }],
     };
@@ -169,6 +181,29 @@ describe("getOpenCodeModels", () => {
     const result = await getOpenCodeModels();
     expect(result.source).toBe("cache");
     expect(result.models[0]?.id).toBe("cached-only");
+  });
+
+  test("ignores cache files written for the old Zen catalog", async () => {
+    writeFileSync(
+      cacheFile,
+      JSON.stringify({
+        version: 1,
+        fetchedAt: Date.now(),
+        models: [{ id: "claude-opus-4-7", name: "Claude Opus 4.7", description: "" }],
+      }),
+    );
+    installFetchMock(async () =>
+      new Response(
+        JSON.stringify({
+          object: "list",
+          data: [{ id: "mimo-v2-pro", owned_by: "opencode" }],
+        }),
+        { status: 200 },
+      ),
+    );
+    const result = await getOpenCodeModels();
+    expect(result.source).toBe("network");
+    expect(result.models.map((m) => m.id)).toEqual(["mimo-v2-pro"]);
   });
 
   test("non-200 response treated as failure", async () => {

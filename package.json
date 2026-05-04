@@ -1,6 +1,6 @@
 {
   "name": "@opencode-go/cli",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "CLI to manage OpenCode Go subscription and launch Claude Code with the correct environment variables",
   "type": "module",
   "bin": {

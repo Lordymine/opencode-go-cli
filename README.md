@@ -34,12 +34,11 @@ Core capabilities:
 ### OpenCode Go (`--provider opencode`)
 
 The OpenCode Go model list is fetched live from
-`https://opencode.ai/zen/v1/models` and cached locally for one hour. Run
-`opencode-go --list` to see the current catalog (40+ models at the time of
-writing, including Claude, Gemini, GPT, GLM, MiniMax, Kimi, Qwen, and free-tier
-entries). Use `opencode-go --refresh-models` (or `--list --refresh-models`)
-to force a refresh. When the endpoint is unreachable the CLI falls back to a
-built-in snapshot of the most common models.
+`https://opencode.ai/zen/go/v1/models` and cached locally for one hour. Run
+`opencode-go --list` to see the current OpenCode Go catalog. Use
+`opencode-go --refresh-models` (or `--list --refresh-models`) to force a
+refresh. When the endpoint is unreachable the CLI falls back to a built-in
+OpenCode Go snapshot.
 
 ### OpenAI (`--provider openai`)
 

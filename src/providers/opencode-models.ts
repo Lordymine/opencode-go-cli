@@ -1,7 +1,7 @@
 // ============================================================
 // OpenCode Go — dynamic model catalog
 //
-// Fetches the live list of models from https://opencode.ai/zen/v1/models
+// Fetches the live list of models from https://opencode.ai/zen/go/v1/models
 // (OpenAI-compatible `object: "list"` payload). Caches the normalized
 // result on disk with a 1h TTL. Falls back to the static `MODELS`
 // snapshot in `constants.ts` when the fetch fails.
@@ -26,7 +26,8 @@ function resolveCacheFile(): string {
 const log = createLogger("[opencode-models]");
 
 interface CacheFile {
-  version: 1;
+  version: 2;
+  endpoint: string;
   fetchedAt: number;
   models: Model[];
 }
@@ -47,6 +48,8 @@ const SEGMENT_MAP: Record<string, string> = {
   claude: "Claude",
   gemini: "Gemini",
   kimi: "Kimi",
+  deepseek: "DeepSeek",
+  mimo: "MiMo",
   qwen: "Qwen",
   ling: "Ling",
   minimax: "MiniMax",
@@ -56,6 +59,7 @@ const SEGMENT_MAP: Record<string, string> = {
   sonnet: "Sonnet",
   haiku: "Haiku",
   pro: "Pro",
+  omni: "Omni",
   flash: "Flash",
   mini: "Mini",
   nano: "Nano",
@@ -70,12 +74,23 @@ const SEGMENT_MAP: Record<string, string> = {
 };
 
 const NUMERIC_SEGMENT = /^\d+(?:\.\d+)*$/;
+const MODEL_VERSION_SEGMENT = /^[kmv]\d+(?:\.\d+)*$/i;
+const QWEN_VERSION_SEGMENT = /^qwen\d+(?:\.\d+)*$/i;
+
+function prettySegment(segment: string): string {
+  const lower = segment.toLowerCase();
+  const mapped = SEGMENT_MAP[lower];
+  if (mapped) return mapped;
+  if (MODEL_VERSION_SEGMENT.test(segment)) return segment.toUpperCase();
+  if (QWEN_VERSION_SEGMENT.test(segment)) return `Qwen${segment.slice(4)}`;
+  return segment;
+}
 
 export function humanizeModelId(id: string): string {
   const segments = id.split("-");
   const isFree = segments.at(-1) === "free";
   const core = isFree ? segments.slice(0, -1) : segments;
-  const pretty = core.map((seg) => SEGMENT_MAP[seg.toLowerCase()] ?? seg);
+  const pretty = core.map(prettySegment);
   // Join consecutive numeric segments with `.` so "claude-opus-4-7" reads
   // as "Claude Opus 4.7" instead of "Claude Opus 4 7".
   let out = "";
@@ -120,7 +135,8 @@ function readCacheFile(): CacheFile | null {
   try {
     if (!existsSync(resolveCacheFile())) return null;
     const raw = JSON.parse(readFileSync(resolveCacheFile(), "utf-8"));
-    if (!raw || raw.version !== 1 || typeof raw.fetchedAt !== "number") return null;
+    if (!raw || raw.version !== 2 || raw.endpoint !== OPENCODE_MODELS_ENDPOINT) return null;
+    if (typeof raw.fetchedAt !== "number") return null;
     if (!Array.isArray(raw.models)) return null;
     return raw as CacheFile;
   } catch (err) {
@@ -132,7 +148,12 @@ function readCacheFile(): CacheFile | null {
 function writeCacheFile(models: Model[]): void {
   try {
     mkdirSync(dirname(resolveCacheFile()), { recursive: true });
-    const payload: CacheFile = { version: 1, fetchedAt: Date.now(), models };
+    const payload: CacheFile = {
+      version: 2,
+      endpoint: OPENCODE_MODELS_ENDPOINT,
+      fetchedAt: Date.now(),
+      models,
+    };
     writeFileSync(resolveCacheFile(), JSON.stringify(payload, null, 2));
   } catch (err) {
     log.debug(`Cache write failed: ${(err as Error).message}`);

@@ -40,28 +40,29 @@ export type PermissionMode = typeof PERMISSION_MODES[number];
 
 // ─── OpenCode Go (default) ────────────────────────────────
 
-// Fallback snapshot of the OpenCode Zen catalog. Used only when the live
-// /zen/v1/models endpoint is unreachable. Updated 2026-04. For the current
-// list, the CLI fetches the catalog at runtime — see
+// Fallback snapshot of the OpenCode Go catalog. Used only when the live
+// /zen/go/v1/models endpoint is unreachable. Updated 2026-05. For the current
+// list, the CLI fetches the catalog at runtime - see
 // src/providers/opencode-models.ts.
 export const MODELS: Model[] = [
   { id: "minimax-m2.7", name: "MiniMax M2.7", description: "High performance coding model" },
   { id: "minimax-m2.5", name: "MiniMax M2.5", description: "Balanced speed and quality" },
-  { id: "minimax-m2.5-free", name: "MiniMax M2.5 (Free)", description: "Free tier" },
   { id: "kimi-k2.6", name: "Kimi K2.6", description: "Latest Kimi reasoning model" },
   { id: "kimi-k2.5", name: "Kimi K2.5", description: "Strong reasoning for complex tasks" },
   { id: "glm-5.1", name: "GLM-5.1", description: "Enhanced reasoning from Zhipu AI" },
   { id: "glm-5", name: "GLM-5", description: "Latest generation from Zhipu AI" },
+  { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", description: "High-performance DeepSeek coding model" },
+  { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", description: "Fast DeepSeek coding model" },
   { id: "qwen3.6-plus", name: "Qwen3.6 Plus", description: "Latest Qwen3 flagship" },
   { id: "qwen3.5-plus", name: "Qwen3.5 Plus", description: "Qwen3 flagship" },
-  { id: "big-pickle", name: "Big Pickle", description: "OpenCode house model" },
-  { id: "ling-2.6-flash-free", name: "Ling 2.6 Flash (Free)", description: "Free tier" },
-  { id: "trinity-large-preview-free", name: "Trinity Large Preview (Free)", description: "Free tier preview" },
-  { id: "nemotron-3-super-free", name: "Nemotron 3 Super (Free)", description: "Free tier" },
+  { id: "mimo-v2-pro", name: "MiMo V2 Pro", description: "MiMo coding model" },
+  { id: "mimo-v2-omni", name: "MiMo V2 Omni", description: "MiMo omni model" },
+  { id: "mimo-v2.5-pro", name: "MiMo V2.5 Pro", description: "MiMo V2.5 coding model" },
+  { id: "mimo-v2.5", name: "MiMo V2.5", description: "MiMo V2.5 model" },
 ];
 
 export const OPENCODE_GO_ENDPOINT = "https://opencode.ai/zen/go/v1/chat/completions";
-export const OPENCODE_MODELS_ENDPOINT = "https://opencode.ai/zen/v1/models";
+export const OPENCODE_MODELS_ENDPOINT = "https://opencode.ai/zen/go/v1/models";
 export const OPENCODE_MODELS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 export const OPENCODE_MODELS_FETCH_TIMEOUT_MS = 5_000;
 

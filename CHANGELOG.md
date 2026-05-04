@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 No unreleased changes yet.
 
+## [1.0.9] - 2026-05-04
+
+### Fixed
+- OpenCode Go model discovery now uses the Go-specific
+  `https://opencode.ai/zen/go/v1/models` endpoint instead of the broader Zen
+  catalog, so provider selection only shows models available in the OpenCode Go
+  plan.
+- Bumped the OpenCode Go model cache format to discard stale caches created
+  from the old Zen catalog endpoint.
+
 ## [1.0.8] - 2026-05-04
 
 ### Added
