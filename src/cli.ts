@@ -827,6 +827,9 @@ async function runClaudeCode(
     const child = spawn(claudePath, spawnArgs, {
       stdio: "inherit",
       env,
+      // On Windows the resolved launcher is a .cmd batch file; CreateProcess
+      // cannot run .cmd directly, it must go through cmd.exe (shell: true).
+      shell: process.platform === "win32",
     });
 
     child.on("error", (err) => {
